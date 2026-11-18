@@ -5,8 +5,9 @@ server) gives you a HulbuFactory **device**: it takes jobs from your organizatio
 (Claude Code, Codex, pi) on them.
 
 - **Light:** Debian 12 (slim) with git, bubblewrap, ca-certificates, GitHub's `gh` and Node. About 100 MB to download.
-- **The HulbuFactory program is not in the image.** At every start the container downloads the newest release from
-  releases.hulbu.com, checks its signature and checksums, and only then runs it.
+- **The HulbuFactory program is not in the image.** At the first start the container downloads it from
+  releases.hulbu.com, checks its signature and checksums, and only then runs it. Every later start looks for a newer
+  release and checks the installed program again.
 - **Everything in one volume:** the program, your sign-ins, the agents, the work. `docker compose down -v` removes it.
 - **No secret** in the image, the compose file or its environment. You sign in by hand, once.
 - amd64 and arm64. Made for plain Docker, and meant to work with Coolify too (not tried yet).
@@ -93,11 +94,13 @@ docker compose exec factory hulbu status
    `8F9BF929B7E0A5F5`. Then it checks the release itself: the stable channel, a version no older than one this machine
    already had, and both files on releases.hulbu.com with a size and a SHA-256. When the installed files are exactly
    the listed ones, they run. Otherwise both files are downloaded, each checked against its size and SHA-256, run
-   once (`hulbu version --json`) and installed. **Nothing that fails a check is ever run.**
-2. **The coding agents.** Claude Code, Codex and pi are installed with npm into the volume at exact versions: Claude
-   Code at the version the release names, the others at the versions the release was tested with, otherwise at the
-   versions in `entrypoint/agents.json`. npm checks each package's integrity and the registry's signatures. If that
-   fails, the device starts without them and tries again at the next start.
+   once (`hulbu version --json`) and installed. It keeps the signed list, so a later start without network can check
+   the installed program against it. **Nothing that fails a check is ever run.**
+2. **The coding agents.** Claude Code, Codex and pi are each installed with npm into their own folder in the volume,
+   at their latest release, and then update themselves as they normally do. npm uses the public registry and checks
+   each package's integrity and the registry's signatures. An agent that cannot be installed is named in the log;
+   the others are not affected, and it is tried again at the next start. To pin them instead, see
+   [Pinning the agents](#pinning-the-agents).
 3. **`hulbu run`** starts and stays the container's main process.
 
 The check runs at **every** start, not only the first, and once more just before `hulbu run` (against the release
@@ -111,15 +114,35 @@ When it cannot go on, the log says why, in one sentence:
 
 | What happened                                                | What the container does                                                 |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| No network, or releases.hulbu.com does not answer            | says so and tries again every minute                                    |
+| No network at a later start                                  | checks the installed program against the signed list kept from the last good start, says the update check was skipped, and starts it |
+| No network at the first start                                | says so and tries again every minute                                    |
 | Something does not match its signed list                     | starts nothing; tries again in 5 minutes (a release may be mid-publish) |
 | It keeps not matching (more than 12 times in a row)          | starts nothing; asks you to report it; tries again once an hour         |
 | releases.hulbu.com has no build for this machine             | says so, points here, and tries again in an hour                        |
 | The downloaded program does not run on this machine          | starts nothing; tries again in an hour                                  |
 
+## Pinning the agents
+
+For a fixed setup (for example to compare agents or models), the agents can be installed at exact versions instead:
+Claude Code at the version the HulbuFactory release names (the one its Claude driver uses), Codex and pi at the
+versions the release was tested with, otherwise at the versions in `entrypoint/agents.json`. Claude Code's own
+updater is then turned off. Create `docker-compose.override.yml` next to `docker-compose.yml` (Compose reads it by
+itself):
+
+```yaml
+services:
+  factory:
+    environment:
+      HULBU_FACTORY_AGENTS: pinned
+```
+
+Then `docker compose up -d`. Remove the file to go back to the agents' normal updates.
+
 ## Updating
 
-- **HulbuFactory:** `docker compose restart`. Each start installs the newest signed release.
+- **HulbuFactory:** `docker compose restart`. Each start installs the newest signed release when releases.hulbu.com
+  can be reached.
+- **The agents** update themselves as they normally do (unless pinned).
 - **The image** (Debian's security updates, Node, gh): `git pull`, `docker compose build`, `docker compose up -d`.
   Rebuild it about once a week.
 

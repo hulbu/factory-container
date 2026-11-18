@@ -249,22 +249,30 @@ test('an installed folder with a changed file or a link does not match', () => {
 
 const defaults = JSON.parse(readFileSync(join(root, 'entrypoint/agents.json'), 'utf8'));
 
-test('Claude Code follows the release, Codex its tested version, pi the image default', () => {
-  const { bytes, signature } = signed(manifest());
-  const release = acceptManifest(bytes, signature, keys, 'linux-arm64', null);
-  assert.deepEqual(agentVersions(release, defaults), [
-    '@anthropic-ai/claude-code@2.1.319',
-    '@openai/codex@0.170.0',
-    `@mariozechner/pi-coding-agent@${defaults.agents[2].version}`,
+test('normally each agent is installed at its latest release and keeps its own update path', () => {
+  assert.deepEqual(agentVersions(null, defaults, false), [
+    'claude @anthropic-ai/claude-code@latest',
+    'codex @openai/codex@latest',
+    'pi @mariozechner/pi-coding-agent@latest',
   ]);
 });
 
-test('without a release (practice) the image defaults are used, and they are exact', () => {
-  const lines = agentVersions(null, defaults);
+test('pinned: Claude Code follows the release, Codex its tested version, pi the image default', () => {
+  const { bytes, signature } = signed(manifest());
+  const release = acceptManifest(bytes, signature, keys, 'linux-arm64', null);
+  assert.deepEqual(agentVersions(release, defaults, true), [
+    'claude @anthropic-ai/claude-code@2.1.319',
+    'codex @openai/codex@0.170.0',
+    `pi @mariozechner/pi-coding-agent@${defaults.agents[2].version}`,
+  ]);
+});
+
+test('pinned without a release (practice): the image defaults, exact', () => {
+  const lines = agentVersions(null, defaults, true);
   assert.equal(lines.length, 3);
   for (const line of lines) assert.match(line, /@\d+\.\d+\.\d+$/);
 });
 
-test('a range is never installed', () => {
-  assert.throws(() => agentVersions(null, { agents: [{ program: 'pi', package: 'p', version: '^1.0.0' }] }), Refusal);
+test('pinned never installs a range', () => {
+  assert.throws(() => agentVersions(null, { agents: [{ program: 'pi', package: 'p', version: '^1.0.0' }] }, true), Refusal);
 });

@@ -52,7 +52,17 @@ if [[ -n "${FAKE_NPM_TAMPER:-}" && "$1" == install ]]; then
       sha256: require("crypto").createHash("sha256").update(bytes).digest("hex") };
     fs.writeFileSync(file, JSON.stringify(release));' "$HOME/.local/state/hulbu-factory/release.json" "$program"
 fi
-[[ -z "${FAKE_NPM_FAIL:-}" ]]
+[[ -z "${FAKE_NPM_FAIL:-}" ]] || exit 1
+if [[ "$1" == install ]]; then
+  # The real npm puts the program in <prefix>/node_modules/.bin/; the prefix is the agent's own folder.
+  prefix="" spec="${*: -1}"
+  previous=""
+  for argument in "$@"; do [[ "$previous" == --prefix ]] && prefix="$argument"; previous="$argument"; done
+  [[ -n "${FAKE_NPM_FAIL_PACKAGE:-}" && "$spec" == "$FAKE_NPM_FAIL_PACKAGE"@* ]] && exit 1
+  mkdir -p "$prefix/node_modules/.bin"
+  printf '#!/bin/sh\necho %s\n' "$spec" >"$prefix/node_modules/.bin/$(basename "$prefix")"
+  chmod 755 "$prefix/node_modules/.bin/$(basename "$prefix")"
+fi
 SHIM
   chmod 755 "$world/shims/sleep" "$world/shims/npm"
   printf '%s\n' "$world"
@@ -98,7 +108,8 @@ contains "$world/out" "Practice build, not signed" practice
 contains "$world/out" "HulbuFactory 0.1.144+abc1234 is installed." practice
 contains "$world/out" "RUNNING run" practice
 [[ "$(readlink "$world/home/.hulbu/versions/current")" == "0.1.144+abc1234" ]] || fail "practice: current is not 0.1.144+abc1234"
-contains "$world/npm-calls" "@anthropic-ai/claude-code@2.1.327" "practice agents"
+contains "$world/npm-calls" "@anthropic-ai/claude-code@latest" "practice agents"
+[[ -x "$world/home/.local/share/hulbu-factory/agents/bin/codex" ]] || fail "practice agents: codex is not linked"
 contains "$world/npm-calls" "audit signatures" "practice agents"
 
 # 1b. The next start with the same agents does not run npm again.
@@ -106,6 +117,21 @@ rm -f "$world/npm-calls"
 run_start "$world" HULBU_PRACTICE_SHA256="$(sha "$world/practice/hulbu")" \
   HULBU_PRACTICE_DRIVER_SHA256="$(sha "$world/practice/station-driver-claude")" || fail "second start failed"
 [[ ! -e "$world/npm-calls" ]] || fail "second start: npm ran again"
+
+# 1c. Pinned (the optional setting): exact versions, from the image's list in practice.
+world="$(new_world)"
+fake_program "$world/practice/hulbu" "$platform"
+printf 'driver\n' >"$world/practice/station-driver-claude"
+run_start "$world" HULBU_FACTORY_AGENTS=pinned HULBU_PRACTICE_SHA256="$(sha "$world/practice/hulbu")" \
+  HULBU_PRACTICE_DRIVER_SHA256="$(sha "$world/practice/station-driver-claude")" || fail "pinned: the start failed"
+contains "$world/npm-calls" "@anthropic-ai/claude-code@2.1.327" pinned
+contains "$world/npm-calls" "@mariozechner/pi-coding-agent@0.73.1" pinned
+
+# 1d. A setting it does not know is refused, not ignored.
+code=0
+run_start "$world" HULBU_FACTORY_AGENTS=exact || code=$?
+[[ "$code" -eq 1 ]] || fail "unknown agents setting: exit $code, not 1"
+contains "$world/out" "the only value it takes is 'pinned'" "unknown agents setting"
 
 # 2. Practice with a wrong checksum: refused, nothing installed.
 world="$(new_world)"
@@ -135,15 +161,27 @@ run_start "$world" HULBU_PRACTICE_SHA256="$(sha "$world/practice/hulbu")" \
 [[ "$code" -eq 1 ]] || fail "other platform: exit $code, not 1"
 contains "$world/out" "is built for 'linux-other'" "other platform"
 
-# 5. The agents cannot be installed: the device still starts, without them.
+# 5a. One agent cannot be installed: it is reported, the others are installed, the device starts.
+world="$(new_world)"
+fake_program "$world/practice/hulbu" "$platform"
+printf 'driver\n' >"$world/practice/station-driver-claude"
+run_start "$world" FAKE_NPM_FAIL_PACKAGE=@openai/codex HULBU_PRACTICE_SHA256="$(sha "$world/practice/hulbu")" \
+  HULBU_PRACTICE_DRIVER_SHA256="$(sha "$world/practice/station-driver-claude")" || fail "one agent failing stopped the start"
+contains "$world/out" "codex could not be installed or checked" "one agent failing"
+[[ -x "$world/home/.local/share/hulbu-factory/agents/bin/claude" ]] || fail "one agent failing: claude is missing"
+[[ -x "$world/home/.local/share/hulbu-factory/agents/bin/pi" ]] || fail "one agent failing: pi is missing"
+[[ ! -e "$world/home/.local/share/hulbu-factory/agents/bin/codex" ]] || fail "one agent failing: codex is linked"
+contains "$world/out" "RUNNING run" "one agent failing"
+
+# 5. No agent can be installed: the device still starts, without them.
 world="$(new_world)"
 fake_program "$world/practice/hulbu" "$platform"
 printf 'driver\n' >"$world/practice/station-driver-claude"
 run_start "$world" FAKE_NPM_FAIL=1 HULBU_PRACTICE_SHA256="$(sha "$world/practice/hulbu")" \
   HULBU_PRACTICE_DRIVER_SHA256="$(sha "$world/practice/station-driver-claude")" || fail "npm failure stopped the start"
-contains "$world/out" "could not be installed or checked" "npm failure"
+contains "$world/out" "claude could not be installed or checked" "npm failure"
 contains "$world/out" "RUNNING run" "npm failure"
-[[ ! -e "$world/home/.local/share/hulbu-factory/agents" ]] || fail "npm failure: the agents folder was kept"
+[[ ! -e "$world/home/.local/share/hulbu-factory/agents/claude" ]] || fail "npm failure: the claude folder was kept"
 
 # ── Online, against a local server serving a release signed by a test key ─────────────────────────────────────
 
@@ -177,6 +215,12 @@ online_world() {
 }
 
 publish 0.2.0 1.1
+
+# Every fetch of the world's release check fails as with no network.
+go_offline() {
+  sed -i.online 's#response = await fetchImplementation(url#throw new TypeError("offline"); response = await fetchImplementation(url#' \
+    "$1/lib/verify-release.mjs"
+}
 
 # 7. A fresh install: downloaded, checked, run once, installed as versions/0.2.0/, then started.
 world="$(online_world)"
@@ -235,6 +279,31 @@ for case in "0.3.0 1.1 version" "0.2.0 9.9 protocol"; do
   contains "$world/sleeps" "slept 3600" "other $what"
   [[ ! -e "$world/home/.hulbu/versions/current" ]] || fail "other $what: it was installed"
 done
+
+# 15. No network on a later start: the program checked earlier is checked again against the kept signed list, and
+#     starts; the log says the update check was skipped.
+publish 0.2.0 1.1
+world="$(online_world)"
+run_start "$world" || fail "before going offline: exit $?"
+go_offline "$world"
+run_start "$world" || fail "offline start: exit $?"
+contains "$world/out" "the update check was skipped" "offline start"
+contains "$world/out" "RUNNING run" "offline start"
+
+# 16. No network, and the installed program was changed: it is not started.
+printf 'changed\n' >>"$world/home/.hulbu/versions/0.2.0/hulbu"
+rm -f "$world/sleeps"
+run_start "$world" || true
+contains "$world/out" "does not match the signed release list kept" "offline, changed program"
+contains "$world/sleeps" "slept 60" "offline, changed program"
+if grep -F "RUNNING" "$world/out" >/dev/null; then fail "offline, changed program: it ran"; fi
+
+# 17. No network at the very first start: nothing to start; it tries again every minute.
+world="$(online_world)"
+go_offline "$world"
+run_start "$world" || true
+contains "$world/out" "no program checked earlier to start" "offline first start"
+contains "$world/sleeps" "slept 60" "offline first start"
 
 # 14. An agent's install script changes the program and the saved release file together: the last check, made
 #     against the release as it was accepted, still refuses to start it.

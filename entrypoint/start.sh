@@ -3,7 +3,8 @@
 #   1. installs the HulbuFactory program (`hulbu` and its Claude driver) into the volume: the newest signed release
 #      from releases.hulbu.com, checked by verify-release.mjs, or, for practice, two files you mount at /practice/
 #      and whose SHA-256 values you pass;
-#   2. installs the coding agents (Claude Code, Codex, pi) at exact versions into the volume;
+#   2. installs the coding agents (Claude Code, Codex, pi) into the volume, each on its own; they then update
+#      themselves as they normally do, unless you pin them (HULBU_FACTORY_AGENTS=pinned, see the README);
 #   3. runs `hulbu run` as the container's main process.
 # Nothing it downloads runs before it is checked. It never prints a secret: it reads none.
 set -euo pipefail
@@ -17,6 +18,7 @@ readonly DRIVER_FILE=station-driver-claude
 readonly VERSIONS="$HOME/.hulbu/versions"
 readonly STATE="$HOME/.local/state/hulbu-factory"
 readonly AGENTS="$HOME/.local/share/hulbu-factory/agents"
+readonly SIGNED="$STATE/signed"
 
 say() {
   printf 'hulbu-factory: %s\n' "$*" >&2
@@ -147,6 +149,25 @@ install_practice() {
 
 # ── Online: the newest signed release from releases.hulbu.com ──────────────────────────────────────────────────
 
+# No network: start the program installed earlier, but only after checking it again against the signed release list
+# kept from that start (its signature with the pinned keys, then both files). Never an unchecked program.
+start_offline() {
+  local platform="$1" release="$2" version
+  [[ -e "$VERSIONS/current" ]] || return 1
+  if ! version="$(check check-stored --keys "$SHARE/keys" --platform "$platform" \
+    --highest "$STATE/highest-version" --save "$SIGNED" --out "$release")"; then
+    say "The signed release list kept from an earlier start does not pass its checks."
+    return 1
+  fi
+  if ! check matches --release "$release" --folder "$VERSIONS/current"; then
+    say "The installed HulbuFactory program does not match the signed release list kept from an earlier start."
+    return 1
+  fi
+  say "releases.hulbu.com cannot be reached: the update check was skipped." \
+    "HulbuFactory $version, installed and checked earlier, matches its signed release list and starts."
+  return 0
+}
+
 # Repeated mismatches: the first hour (12 tries, 5 minutes apart) can be a release being published; after that it
 # is worth a person's look, and the container tries only once an hour.
 refuse_mismatch() {
@@ -171,7 +192,7 @@ install_release() {
   while true; do
     code=0
     version="$(check check-manifest --keys "$SHARE/keys" --platform "$platform" \
-      --highest "$STATE/highest-version" --out "$release")" || code=$?
+      --highest "$STATE/highest-version" --save "$SIGNED" --out "$release")" || code=$?
     if [[ "$code" -eq 0 ]]; then
       if check matches --release "$release" --folder "$VERSIONS/current"; then
         say "HulbuFactory $version is installed and matches the signed release."
@@ -193,7 +214,10 @@ install_release() {
     fi
     case "$code" in
       10)
-        say "Cannot check the HulbuFactory program without releases.hulbu.com." \
+        if start_offline "$platform" "$release"; then
+          return 0
+        fi
+        say "Cannot check the HulbuFactory program without releases.hulbu.com, and there is no program checked earlier to start." \
           "Check this machine's internet connection; trying again in a minute."
         sleep 60
         ;;
@@ -213,39 +237,61 @@ install_release() {
 
 # ── The coding agents ───────────────────────────────────────────────────────────────────────────────────────────
 
-install_agents() {
-  local release="$1" listed line
-  local -a wanted
-  if ! listed="$(check agent-versions --release "$release" --defaults "$SHARE/agents.json")"; then
-    say "The coding agents' versions cannot be read; starting without them."
+# One agent into its own folder ($AGENTS/<program>/), linked into $AGENTS/bin/. A failure is reported and leaves the
+# other agents as they are.
+install_agent() {
+  local program="$1" spec="$2" folder="$AGENTS/$1"
+  # Normally an agent installed once keeps its own update path; pinned, it is installed again when the pin changes.
+  if [[ -f "$folder/.installed" && "$(<"$folder/.installed")" == "$spec" && -x "$AGENTS/bin/$program" ]]; then
     return 0
   fi
-  wanted=()
-  while IFS= read -r line; do
-    [[ -n "$line" ]] && wanted+=("$line")
-  done <<<"$listed"
-  if [[ -f "$AGENTS/.installed" && "$(<"$AGENTS/.installed")" == "$listed" ]]; then
-    return 0
-  fi
-  say "Installing the coding agents: ${wanted[*]}."
-  rm -rf "$AGENTS"
-  mkdir -p "$AGENTS"
+  say "Installing $spec."
+  rm -rf "$folder"
+  mkdir -p "$folder" "$AGENTS/bin"
   # npm reads no configuration from the volume: the public registry, and the image's empty user configuration.
-  local -a npm_options=(--prefix "$AGENTS" --registry=https://registry.npmjs.org/ --userconfig="$SHARE/npmrc"
+  local -a npm_options=(--prefix "$folder" --registry=https://registry.npmjs.org/ --userconfig="$SHARE/npmrc"
     --no-update-notifier)
-  if npm install "${npm_options[@]}" --no-fund --no-audit --omit=dev --save-exact "${wanted[@]}" \
-    && npm audit signatures "${npm_options[@]}"; then
-    printf '%s\n' "$listed" >"$AGENTS/.installed"
-    say "The coding agents are installed."
+  if npm install "${npm_options[@]}" --no-fund --no-audit --omit=dev "$spec" \
+    && npm audit signatures "${npm_options[@]}" \
+    && [[ -x "$folder/node_modules/.bin/$program" ]]; then
+    ln -sfn "../$program/node_modules/.bin/$program" "$AGENTS/bin/$program"
+    printf '%s\n' "$spec" >"$folder/.installed"
+    say "$program is installed."
   else
-    rm -rf "$AGENTS"
-    say "The coding agents could not be installed or checked (see npm's lines above)." \
-      "HulbuFactory starts without them and tries again at the next start."
+    rm -rf "$folder"
+    rm -f "$AGENTS/bin/$program"
+    say "$program could not be installed or checked (see npm's lines above); the other agents are not affected." \
+      "This container tries again at the next start."
   fi
+}
+
+install_agents() {
+  local release="$1" pinned="$2" listed program spec
+  if ! listed="$(check agent-versions --release "$release" --defaults "$SHARE/agents.json" --pinned "$pinned")"; then
+    say "The coding agents' versions cannot be read; starting without installing any."
+    return 0
+  fi
+  while read -r program spec; do
+    [[ -n "$program" ]] && install_agent "$program" "$spec"
+  done <<<"$listed"
+  return 0
 }
 
 main() {
   local platform release accepted=""
+  # Optional: HULBU_FACTORY_AGENTS=pinned installs the agents at exact versions and turns Claude Code's updater off.
+  local pinned=no
+  case "${HULBU_FACTORY_AGENTS:-}" in
+    "") ;;
+    pinned)
+      pinned=yes
+      export DISABLE_AUTOUPDATER=1
+      ;;
+    *)
+      say "HULBU_FACTORY_AGENTS is '${HULBU_FACTORY_AGENTS}'; the only value it takes is 'pinned'."
+      exit 1
+      ;;
+  esac
   platform="$(machine_platform)"
   mkdir -p "$VERSIONS" "$STATE"
   # Practice when the practice compose file is used (it sets the checksums) or practice files are mounted.
@@ -258,7 +304,7 @@ main() {
     # The release as it was accepted, kept here: the last check must not trust a file in the volume.
     accepted="$(<"$release")"
   fi
-  install_agents "$release"
+  install_agents "$release" "$pinned"
   # The agents' install scripts ran after the program was checked: check it once more, last, then start it.
   if [[ "$release" == none ]]; then
     practice_file_matches "$VERSIONS/current/hulbu" "$HULBU_PRACTICE_SHA256" hulbu || exit 1

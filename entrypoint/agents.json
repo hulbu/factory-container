@@ -1,5 +1,5 @@
 {
-  "comment": "Exact versions of the coding agents installed into the volume. Claude Code follows the signed release's claude_version, Codex and pi its tested_programs when it names them; these are the fallbacks.",
+  "comment": "The coding agents installed into the volume. Normally each is installed at its latest release and then updates itself as it normally does. With HULBU_FACTORY_AGENTS=pinned they are installed at exact versions: Claude Code at the signed release's claude_version, Codex and pi at its tested_programs when it names them, otherwise at the versions below.",
   "agents": [
     { "program": "claude", "package": "@anthropic-ai/claude-code", "version": "2.1.327" },
     { "program": "codex", "package": "@openai/codex", "version": "0.170.0" },

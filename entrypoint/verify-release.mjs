@@ -13,10 +13,13 @@
 // jq or minisign. Messages go to stderr as one sentence a person can act on; results go to files or stdout.
 //
 // Commands (exit 0 on success):
-//   check-manifest --keys DIR --platform P --highest FILE --out FILE
+//   check-manifest --keys DIR --platform P --highest FILE --save DIR --out FILE
+//                  (fetches the release list; once accepted, keeps its exact bytes and signature in --save)
+//   check-stored   --keys DIR --platform P --highest FILE --save DIR --out FILE
+//                  (the same checks on the copy kept by an earlier check-manifest: for a start without network)
 //   matches        --release FILE | --release-json TEXT --folder DIR   (exit 1: not exactly these files)
 //   download       --release FILE --into DIR
-//   agent-versions --release FILE|none --defaults FILE
+//   agent-versions --release FILE|none --defaults FILE --pinned yes|no   (lines: <program> <package>@<version>)
 //
 // Exit codes: 10 the network or the host did not answer; 11 something does not match (refuse, try again later);
 // 12 the release has nothing for this platform; 2 wrong use.
@@ -289,19 +292,25 @@ export async function downloadInto(release, folder, options = {}) {
 const NPM_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 /**
- * `package@version` lines for npm. Claude Code follows the release's `claude_version` (the claude the driver
- * embeds); the others follow its `tested_programs`; the image's defaults fill the rest. Only exact versions.
+ * What to install, one `<program> <package>@<version>` line per agent. Normally `latest`: each agent then keeps its
+ * own update path. Pinned (an optional setting): Claude Code at the release's `claude_version` (the claude the driver
+ * embeds), the others at its `tested_programs`, the image's defaults for the rest; only exact versions.
  */
-export function agentVersions(release, defaults) {
+export function agentVersions(release, defaults, pinned) {
   const lines = [];
   for (const agent of defaults.agents) {
+    if (!/^[a-z][a-z0-9-]*$/.test(agent.program)) throw new Refusal(EXIT.usage, `${agent.program} is not a program name.`);
+    if (!pinned) {
+      lines.push(`${agent.program} ${agent.package}@latest`);
+      continue;
+    }
     let version = agent.version;
     if (release !== null) {
       const fromRelease = agent.program === 'claude' ? release.claude_version : release.tested_programs[agent.program];
       if (typeof fromRelease === 'string' && NPM_VERSION.test(fromRelease)) version = fromRelease;
     }
     if (!NPM_VERSION.test(version)) throw new Refusal(EXIT.usage, `The version ${version} of ${agent.package} is not exact.`);
-    lines.push(`${agent.package}@${version}`);
+    lines.push(`${agent.program} ${agent.package}@${version}`);
   }
   return lines;
 }
@@ -346,6 +355,28 @@ async function main(argv) {
         throw new Refusal(EXIT.noPlatform, `releases.hulbu.com has no HulbuFactory build for ${platform} yet.`);
       }
       const release = acceptManifest(bytes, signature.toString('utf8'), keys, platform, readHighest(required(found, 'highest')));
+      const save = required(found, 'save');
+      mkdirSync(save, { recursive: true, mode: 0o700 });
+      writeFileSync(join(save, 'manifest.json'), bytes, { mode: 0o600 });
+      writeFileSync(join(save, 'manifest.json.minisig'), signature, { mode: 0o600 });
+      writeFileSync(required(found, 'out'), `${JSON.stringify(release)}\n`, { mode: 0o600 });
+      process.stdout.write(`${release.version}\n`);
+      return 0;
+    }
+    case 'check-stored': {
+      const platform = required(found, 'platform');
+      if (!PLATFORMS.includes(platform)) throw new Refusal(EXIT.usage, `${platform} is not a platform HulbuFactory builds for.`);
+      const keys = loadKeys(required(found, 'keys'));
+      const save = required(found, 'save');
+      let bytes;
+      let signature;
+      try {
+        bytes = readFileSync(join(save, 'manifest.json'));
+        signature = readFileSync(join(save, 'manifest.json.minisig'), 'utf8');
+      } catch {
+        throw mismatch('No signed release list was kept from an earlier start.');
+      }
+      const release = acceptManifest(bytes, signature, keys, platform, readHighest(required(found, 'highest')));
       writeFileSync(required(found, 'out'), `${JSON.stringify(release)}\n`, { mode: 0o600 });
       process.stdout.write(`${release.version}\n`);
       return 0;
@@ -365,7 +396,8 @@ async function main(argv) {
       const source = required(found, 'release');
       const release = source === 'none' ? null : JSON.parse(readFileSync(source, 'utf8'));
       const defaults = JSON.parse(readFileSync(required(found, 'defaults'), 'utf8'));
-      process.stdout.write(`${agentVersions(release, defaults).join('\n')}\n`);
+      const pinned = required(found, 'pinned') === 'yes';
+      process.stdout.write(`${agentVersions(release, defaults, pinned).join('\n')}\n`);
       return 0;
     }
     default:

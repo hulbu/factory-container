@@ -70,13 +70,11 @@ COPY --chmod=0755 entrypoint/start.sh /usr/local/lib/hulbu-factory/start.sh
 COPY --chmod=0755 bin/hulbu /usr/local/bin/hulbu
 
 # Fixed values of the image, none of them a secret or a choice: secrets in files (and so every agent sandboxed, or not
-# started); Claude Code's own updater off, so the pinned version holds; the agents last on PATH, so nothing in the
-# volume can stand in for a system program.
+# started); the agents last on PATH, so nothing in the volume can stand in for a system program.
 ENV HULBU_SECRET_STORE=file \
-    DISABLE_AUTOUPDATER=1 \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_FUND=false \
-    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/hulbu/.local/share/hulbu-factory/agents/node_modules/.bin
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/hulbu/.local/share/hulbu-factory/agents/bin
 
 LABEL org.opencontainers.image.title="HulbuFactory container" \
       org.opencontainers.image.description="A HulbuFactory device: takes jobs from hulbu.com and runs coding agents." \
