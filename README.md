@@ -4,7 +4,7 @@ HulbuFactory as a container. One `docker compose up` on a Linux machine you own 
 server) gives you a HulbuFactory **device**: it takes jobs from your organization on hulbu.com and runs coding agents
 (Claude Code, Codex, pi) on them.
 
-- **Light:** Debian 12 (slim) with git, bubblewrap, ca-certificates, GitHub's `gh` and Node. About 100 MB to download.
+- **Light:** Debian 12 (slim) with git, bubblewrap, ca-certificates, GitHub's `gh` and Node. About 120 MB to download.
 - **The HulbuFactory program is not in the image.** At the first start the container downloads it from
   releases.hulbu.com, checks its signature and checksums, and only then runs it. Every later start looks for a newer
   release and checks the installed program again.
@@ -31,7 +31,7 @@ Read this before you install:
   with a 64-bit system is a first target, but not tried yet: its kernel uses 16 KB memory pages by default, and
   whether every program runs with them is still to be checked.
 - Docker Engine with the Compose plugin (`docker compose version`).
-- About 3 GB of free disk: about 310 MB for the image, about 2 GB in the volume before the first job (the program,
+- About 3 GB of free disk: about 350 MB for the image, about 2 GB in the volume before the first job (the program,
   the Claude driver, the agents), then the work itself. On a Raspberry Pi, put Docker's data on an SSD rather than the
   SD card.
 - An account on hulbu.com in the organization the device will work for, a Claude account, and a GitHub account that
@@ -201,17 +201,17 @@ that is what the three steps above are for. Then delete this folder.
 
 ## What is in the image
 
-| Part                                            | From                                                                          | Compressed / on disk (estimated, per architecture) |
-| ----------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------- |
-| Debian 12 slim                                  | `debian:bookworm-slim`, pinned by digest                                      | 28 MB / 75 MB                                      |
-| git, bubblewrap, ca-certificates                | Debian                                                                        | 14 MB / 60 MB                                      |
-| gh                                              | GitHub's Debian repository (its key is in `keys/`)                            | 14 MB / 40 MB                                      |
-| Node 24 (without its C headers and docs)        | nodejs.org, checked against a pinned SHA-256                                  | 46 MB / 137 MB                                     |
-| the entrypoint, the release check, the keys     | this repository                                                               | under 0.1 MB                                       |
-| **Total**                                       |                                                                               | **about 102 MB / 312 MB**                          |
+| Part                                         | From                                               | amd64 on disk | arm64 on disk |
+| -------------------------------------------- | -------------------------------------------------- | ------------- | ------------- |
+| Debian 12 slim                               | `debian:bookworm-slim`, pinned by digest           | 75 MB         | 97 MB         |
+| git (with the Perl it needs), bubblewrap, ca-certificates | Debian                                | 94 MB         | 97 MB         |
+| gh                                           | GitHub's Debian repository (its key is in `keys/`) | 42 MB         | 39 MB         |
+| Node 24 (without its C headers and docs)     | nodejs.org, checked against a pinned SHA-256       | 140 MB        | 137 MB        |
+| the entrypoint, the release check, the keys  | this repository                                    | under 0.1 MB  | under 0.1 MB  |
+| **Total on disk**                            |                                                    | **334 MB**    | **353 MB**    |
+| **Download (compressed)**                    |                                                    | **about 119 MB** | **about 117 MB** |
 
-The sizes are estimates from the package lists and the Node download, made before the first build; the first build
-replaces them with measured ones (`docker history hulbu-factory:local`).
+Measured by this repository's CI on 2026-11-18 (`docker history`; the download size is a gzip of `docker save`).
 
 Not in the image: the HulbuFactory program, the coding agents, any token, key, password or sign-in, SSH, Docker,
 Rust or a compiler. The container never needs `--privileged` or the Docker socket.
