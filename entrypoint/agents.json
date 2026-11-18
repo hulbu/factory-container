@@ -1,0 +1,8 @@
+{
+  "comment": "Exact versions of the coding agents installed into the volume. Claude Code follows the signed release's claude_version, Codex and pi its tested_programs when it names them; these are the fallbacks.",
+  "agents": [
+    { "program": "claude", "package": "@anthropic-ai/claude-code", "version": "2.1.327" },
+    { "program": "codex", "package": "@openai/codex", "version": "0.170.0" },
+    { "program": "pi", "package": "@mariozechner/pi-coding-agent", "version": "0.73.1" }
+  ]
+}

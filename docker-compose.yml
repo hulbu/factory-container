@@ -1,0 +1,23 @@
+# HulbuFactory as a container. `docker compose up -d`, then sign in (see the README).
+# The same file works on Coolify as a "Docker Compose" resource.
+services:
+  factory:
+    # No image is published yet (where is still open): build it once on a machine that is not the Pi (see the README).
+    image: hulbu-factory:local
+    build: .
+    init: true # a small init as process 1: it passes signals on and reaps the agents' child processes
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true # only the volume and /tmp can be written
+    tmpfs:
+      # The Claude driver unpacks the claude program here and runs it, so this /tmp allows running programs.
+      - /tmp:rw,exec,nosuid,nodev,size=2g,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 2m # time for the agents to finish their turn on `docker compose down`
+    volumes:
+      - factory:/home/hulbu # everything: the program, the logins, the agents, the work
+
+volumes:
+  factory: {}

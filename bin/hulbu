@@ -1,0 +1,8 @@
+#!/bin/sh
+# `hulbu` on PATH: the program the entrypoint downloaded, checked and installed into the volume.
+program="${HOME:-/home/hulbu}/.hulbu/versions/current/hulbu"
+if [ ! -x "$program" ]; then
+  echo "HulbuFactory is not installed in this container yet; see the container's log (docker compose logs factory)." >&2
+  exit 1
+fi
+exec "$program" "$@"

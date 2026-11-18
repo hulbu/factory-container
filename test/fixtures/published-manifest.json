@@ -1,0 +1,35 @@
+{
+  "version": "0.1.78",
+  "protocol": "1.1",
+  "channel": "stable",
+  "published_at": 1794932376908,
+  "rollback": true,
+  "sidecar_sdk_version": "0.3.319",
+  "claude_version": "2.1.319",
+  "artifacts": {
+    "macos-arm64": {
+      "station": {
+        "url": "https://releases.hulbu.com/factory/0.1.78/service/macos-arm64/hulbu",
+        "size": 20998928,
+        "sha256": "81b9e16f3492b8f1ed5071e35c10cbd365793789832f6338d90bc139104b1c45"
+      },
+      "sidecar": {
+        "url": "https://releases.hulbu.com/factory/0.1.78/service/macos-arm64/station-driver-claude",
+        "size": 415288418,
+        "sha256": "43b4411054c72748a6de4173e7fd3a64477729ccd7d07f9cb8961106f76bf790"
+      }
+    },
+    "macos-x64": {
+      "station": {
+        "url": "https://releases.hulbu.com/factory/0.1.78/service/macos-x64/hulbu",
+        "size": 23457728,
+        "sha256": "5f26699f5fe58f245449c4f43bdcebe5b1fcd734a44c083f981f39db033c3882"
+      },
+      "sidecar": {
+        "url": "https://releases.hulbu.com/factory/0.1.78/service/macos-x64/station-driver-claude",
+        "size": 436481504,
+        "sha256": "e2e35a722d14725054b7f06e8a129eeecb3e9849aeee448b93b43f918b08eef9"
+      }
+    }
+  }
+}

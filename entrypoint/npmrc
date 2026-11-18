@@ -1,0 +1,1 @@
+; Empty on purpose: npm in the container reads no user configuration from the volume.
