@@ -118,7 +118,7 @@ When it cannot go on, the log says why, in one sentence:
 | No network at the first start                                | says so and tries again every minute                                    |
 | Something does not match its signed list                     | starts nothing; tries again in 5 minutes (a release may be mid-publish) |
 | It keeps not matching (more than 12 times in a row)          | starts nothing; asks you to report it; tries again once an hour         |
-| releases.hulbu.com has no build for this machine             | says so, points here, and tries again in an hour                        |
+| releases.hulbu.com has no build for this machine             | at the first start: says so, points here, and tries again in an hour; later: starts the program checked earlier, as with no network |
 | The downloaded program does not run on this machine          | starts nothing; tries again in an hour                                  |
 
 ## Pinning the agents

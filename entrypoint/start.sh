@@ -149,10 +149,11 @@ install_practice() {
 
 # ── Online: the newest signed release from releases.hulbu.com ──────────────────────────────────────────────────
 
-# No network: start the program installed earlier, but only after checking it again against the signed release list
-# kept from that start (its signature with the pinned keys, then both files). Never an unchecked program.
-start_offline() {
-  local platform="$1" release="$2" version
+# No network, or a newest release without a build for this machine: start the program installed earlier, but only
+# after checking it again against the signed release list kept from that start (its signature with the pinned keys,
+# then both files). Never an unchecked program. $3 says why there is no update.
+start_installed() {
+  local platform="$1" release="$2" why="$3" version
   [[ -e "$VERSIONS/current" ]] || return 1
   if ! version="$(check check-stored --keys "$SHARE/keys" --platform "$platform" \
     --highest "$STATE/highest-version" --save "$SIGNED" --out "$release")"; then
@@ -163,8 +164,7 @@ start_offline() {
     say "The installed HulbuFactory program does not match the signed release list kept from an earlier start."
     return 1
   fi
-  say "releases.hulbu.com cannot be reached: the update check was skipped." \
-    "HulbuFactory $version, installed and checked earlier, matches its signed release list and starts."
+  say "$why" "HulbuFactory $version, installed and checked earlier, matches its signed release list and starts."
   return 0
 }
 
@@ -214,7 +214,7 @@ install_release() {
     fi
     case "$code" in
       10)
-        if start_offline "$platform" "$release"; then
+        if start_installed "$platform" "$release" "releases.hulbu.com cannot be reached: the update check was skipped."; then
           return 0
         fi
         say "Cannot check the HulbuFactory program without releases.hulbu.com, and there is no program checked earlier to start." \
@@ -222,6 +222,9 @@ install_release() {
         sleep 60
         ;;
       12)
+        if start_installed "$platform" "$release" "The newest release has no build for $platform, so there is no update."; then
+          return 0
+        fi
         say "Until it has, use a build of your own: see 'Practice with a local build' in the README."
         stop_after 3600
         ;;
