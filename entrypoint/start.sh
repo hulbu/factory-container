@@ -61,8 +61,10 @@ install_folder() {
   local source="$1" platform="$2" kind="$3" expected_version="${4:-}" expected_protocol="${5:-}"
   local report version protocol found_platform build folder target replaced link
   if ! report="$("$source/hulbu" version --json)"; then
-    say "The HulbuFactory program does not run on this machine (its 'version --json' failed, see above)." \
-      "A build of your own must be made for $platform and for glibc 2.36 or older (Debian 12)."
+    say "The HulbuFactory program does not run on this machine (its 'version --json' failed, see above)."
+    if [[ "$kind" == local ]]; then
+      say "A build of your own must be made for $platform and for glibc 2.36 or older (Debian 12)."
+    fi
     return 1
   fi
   version="$(json_field version "$report")"
@@ -243,7 +245,7 @@ install_agents() {
 }
 
 main() {
-  local platform release
+  local platform release accepted=""
   platform="$(machine_platform)"
   mkdir -p "$VERSIONS" "$STATE"
   # Practice when the practice compose file is used (it sets the checksums) or practice files are mounted.
@@ -253,13 +255,15 @@ main() {
   else
     release="$STATE/release.json"
     install_release "$platform" "$release"
+    # The release as it was accepted, kept here: the last check must not trust a file in the volume.
+    accepted="$(<"$release")"
   fi
   install_agents "$release"
   # The agents' install scripts ran after the program was checked: check it once more, last, then start it.
   if [[ "$release" == none ]]; then
     practice_file_matches "$VERSIONS/current/hulbu" "$HULBU_PRACTICE_SHA256" hulbu || exit 1
     practice_file_matches "$VERSIONS/current/$DRIVER_FILE" "$HULBU_PRACTICE_DRIVER_SHA256" "$DRIVER_FILE" || exit 1
-  elif ! check matches --release "$release" --folder "$VERSIONS/current"; then
+  elif ! check matches --release-json "$accepted" --folder "$VERSIONS/current"; then
     say "The installed HulbuFactory program changed while the coding agents were installed. Nothing was started."
     stop_after 300
   fi

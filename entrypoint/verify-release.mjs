@@ -14,7 +14,7 @@
 //
 // Commands (exit 0 on success):
 //   check-manifest --keys DIR --platform P --highest FILE --out FILE
-//   matches        --release FILE --folder DIR      (exit 1: the folder does not hold exactly these files)
+//   matches        --release FILE | --release-json TEXT --folder DIR   (exit 1: not exactly these files)
 //   download       --release FILE --into DIR
 //   agent-versions --release FILE|none --defaults FILE
 //
@@ -351,7 +351,9 @@ async function main(argv) {
       return 0;
     }
     case 'matches': {
-      const release = JSON.parse(readFileSync(required(found, 'release'), 'utf8'));
+      // --release-json: the accepted release itself, kept by the caller, so no file in the volume is trusted here.
+      const text = found['release-json'] ?? readFileSync(required(found, 'release'), 'utf8');
+      const release = JSON.parse(text);
       return folderMatches(release, required(found, 'folder')) ? 0 : 1;
     }
     case 'download': {

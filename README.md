@@ -9,7 +9,7 @@ server) gives you a HulbuFactory **device**: it takes jobs from your organizatio
   releases.hulbu.com, checks its signature and checksums, and only then runs it.
 - **Everything in one volume:** the program, your sign-ins, the agents, the work. `docker compose down -v` removes it.
 - **No secret** in the image, the compose file or its environment. You sign in by hand, once.
-- amd64 and arm64. The same files work with plain Docker and with Coolify.
+- amd64 and arm64. Made for plain Docker, and meant to work with Coolify too (not tried yet).
 
 ## Status: first version, for trying it out
 
@@ -26,8 +26,9 @@ Read this before you install:
 
 ## What you need
 
-- A Linux machine with an x86_64 (amd64) or aarch64 (arm64) processor. A Raspberry Pi 5 with a 64-bit system works.
-  Give it a machine that runs nothing else.
+- A Linux machine with an x86_64 (amd64) or aarch64 (arm64) processor, given to HulbuFactory alone. A Raspberry Pi 5
+  with a 64-bit system is a first target, but not tried yet: its kernel uses 16 KB memory pages by default, and
+  whether every program runs with them is still to be checked.
 - Docker Engine with the Compose plugin (`docker compose version`).
 - About 3 GB of free disk: about 310 MB for the image, about 2 GB in the volume before the first job (the program,
   the Claude driver, the agents), then the work itself. On a Raspberry Pi, put Docker's data on an SSD rather than the
@@ -45,13 +46,15 @@ docker compose up -d
 docker compose logs -f factory
 ```
 
-**For a Raspberry Pi**, build the arm64 image on another machine (with Docker Buildx) and copy it over:
+**For a Raspberry Pi**, build the arm64 image on another machine (with Docker Buildx) and copy it over. On an x86
+machine, Buildx needs arm64 emulation set up first (Docker Desktop has it; on Linux, see Docker's "multi-platform
+builds"). An arm64 machine builds it directly.
 
 ```sh
 docker buildx build --platform linux/arm64 -t hulbu-factory:local --output type=docker,dest=hulbu-factory-arm64.tar .
 scp hulbu-factory-arm64.tar pi@your-pi:            # then, on the Pi:
 docker load -i hulbu-factory-arm64.tar
-docker compose up -d                                # in a clone of this repository on the Pi
+docker compose up -d --no-build                     # in a clone of this repository on the Pi; never builds there
 ```
 
 ## Sign in (once)
@@ -97,9 +100,10 @@ docker compose exec factory hulbu status
    fails, the device starts without them and tries again at the next start.
 3. **`hulbu run`** starts and stays the container's main process.
 
-The check runs at **every** start, not only the first, and once more just before `hulbu run`, so a HulbuFactory
-program changed inside the volume is replaced by the signed one at the next start. **Only those two files are checked
-again.** Everything else in the volume (the agents, the sign-ins, git's and gh's settings, the work) is not, so after
+The check runs at **every** start, not only the first, and once more just before `hulbu run` (against the release
+as it was accepted, kept in memory), so a HulbuFactory program changed inside the volume is replaced by the signed one
+at the next start. **Only those two files are checked again**, and a program left running by an agent's install
+script could still change them between that last check and the start. Everything else in the volume (the agents, the sign-ins, git's and gh's settings, the work) is not, so after
 anything suspicious, do not clean up in place: remove the device on the server side and the volume, and install
 again (see [Removing it](#removing-it)).
 

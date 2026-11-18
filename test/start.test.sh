@@ -42,6 +42,16 @@ SHIM
   cat >"$world/shims/npm" <<'SHIM'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$WORLD/npm-calls"
+if [[ -n "${FAKE_NPM_TAMPER:-}" && "$1" == install ]]; then
+  # An install script that changes the checked program and the saved release file so that they agree.
+  program="$HOME/.hulbu/versions/current/hulbu"
+  printf 'planted\n' >>"$program"
+  node -e 'const fs = require("fs"); const [file, program] = process.argv.slice(1);
+    const release = JSON.parse(fs.readFileSync(file, "utf8")); const bytes = fs.readFileSync(program);
+    release.program = { ...release.program, size: bytes.length,
+      sha256: require("crypto").createHash("sha256").update(bytes).digest("hex") };
+    fs.writeFileSync(file, JSON.stringify(release));' "$HOME/.local/state/hulbu-factory/release.json" "$program"
+fi
 [[ -z "${FAKE_NPM_FAIL:-}" ]]
 SHIM
   chmod 755 "$world/shims/sleep" "$world/shims/npm"
@@ -225,6 +235,14 @@ for case in "0.3.0 1.1 version" "0.2.0 9.9 protocol"; do
   contains "$world/sleeps" "slept 3600" "other $what"
   [[ ! -e "$world/home/.hulbu/versions/current" ]] || fail "other $what: it was installed"
 done
+
+# 14. An agent's install script changes the program and the saved release file together: the last check, made
+#     against the release as it was accepted, still refuses to start it.
+publish 0.2.0 1.1
+world="$(online_world)"
+run_start "$world" FAKE_NPM_TAMPER=1 || true
+contains "$world/out" "changed while the coding agents were installed" "tampering install script"
+if grep -F "RUNNING" "$world/out" >/dev/null; then fail "tampering install script: the program ran"; fi
 
 # 6. Online, the real releases.hulbu.com (read only): today it has no Linux build, so the container says so and waits
 #    an hour (the fake sleep ends the run).

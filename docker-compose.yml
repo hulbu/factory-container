@@ -1,5 +1,5 @@
 # HulbuFactory as a container. `docker compose up -d`, then sign in (see the README).
-# The same file works on Coolify as a "Docker Compose" resource.
+# Meant to work on Coolify as a "Docker Compose" resource too (not tried yet).
 services:
   factory:
     # No image is published yet (where is still open): build it once on a machine that is not the Pi (see the README).
