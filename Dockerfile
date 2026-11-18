@@ -63,7 +63,9 @@ RUN --mount=type=bind,from=node,source=/node.tar.gz,target=/tmp/node.tar.gz \
 RUN groupadd --gid 10001 hulbu \
     && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/hulbu --shell /bin/bash hulbu
 
-# Layer 4: the entrypoint, the release check, the pinned keys. Root-owned, read only for the service.
+# Layer 4: the entrypoint, the release check, the pinned keys. Root-owned, read only for the service. The folders
+# are made first: `COPY --chmod` would give the folders it creates the files' mode too (0644: not enterable).
+RUN install -d -m 0755 /usr/local/lib/hulbu-factory /usr/local/share/hulbu-factory /usr/local/share/hulbu-factory/keys
 COPY --chmod=0644 keys/hulbu-release-current.pub keys/hulbu-release-next.pub /usr/local/share/hulbu-factory/keys/
 COPY --chmod=0644 entrypoint/agents.json entrypoint/npmrc /usr/local/share/hulbu-factory/
 COPY --chmod=0644 entrypoint/verify-release.mjs /usr/local/lib/hulbu-factory/verify-release.mjs
