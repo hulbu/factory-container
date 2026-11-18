@@ -336,6 +336,41 @@ contains "$world/out" "HulbuFactory 0.2.0, installed and checked earlier" "broke
 contains "$world/out" "RUNNING run" "broken download"
 publish 0.2.0 1.1
 
+# 20. A newer release whose file does not match its signed list, while 0.2.0 is installed: nothing new is installed,
+#     0.2.0 is checked again against its own kept list and starts; the mismatch is counted.
+served_folder="$releases/hulbufactory/cli/$([[ "$platform" == linux-x64 ]] && echo linux || echo linux/arm64)"
+publish 0.2.0 1.1
+world="$(online_world)"
+run_start "$world" || fail "before the bad newer release: exit $?"
+publish 0.3.0 1.1
+printf 'tampered\n' >>"$served_folder/hulbu"
+run_start "$world" || fail "bad newer release: exit $?"
+contains "$world/out" "does not match its signed list" "bad newer release"
+contains "$world/out" "HulbuFactory 0.2.0, installed and checked earlier" "bad newer release"
+contains "$world/out" "RUNNING run" "bad newer release"
+[[ "$(readlink "$world/home/.hulbu/versions/current")" == "0.2.0" ]] || fail "bad newer release: current changed"
+[[ "$(<"$world/home/.local/state/hulbu-factory/mismatches")" == 1 ]] || fail "bad newer release: not counted"
+
+# 21. The same after 12 mismatches in a row: still the installed program, and the request to report it.
+printf '12\n' >"$world/home/.local/state/hulbu-factory/mismatches"
+run_start "$world" || fail "repeated bad newer release: exit $?"
+contains "$world/out" "report it to Hulbu" "repeated bad newer release"
+contains "$world/out" "RUNNING run" "repeated bad newer release"
+[[ "$(<"$world/home/.local/state/hulbu-factory/mismatches")" == 13 ]] || fail "repeated bad newer release: not counted"
+
+# 22. A newer release whose trial run fails here: 0.2.0 starts again, never the new one.
+publish 0.2.0 1.1
+world="$(online_world)"
+run_start "$world" || fail "before the failing newer release: exit $?"
+publish 0.3.0 1.1 0.9.9
+run_start "$world" || fail "failing newer release: exit $?"
+contains "$world/out" "does not start here" "failing newer release"
+contains "$world/out" "HulbuFactory 0.2.0, installed and checked earlier" "failing newer release"
+contains "$world/out" "RUNNING run" "failing newer release"
+[[ "$(readlink "$world/home/.hulbu/versions/current")" == "0.2.0" ]] || fail "failing newer release: current changed"
+[[ ! -e "$world/home/.hulbu/versions/0.3.0" ]] || fail "failing newer release: 0.3.0 was installed"
+publish 0.2.0 1.1
+
 # 14. An agent's install script changes the program and the saved release file together: the last check, made
 #     against the release as it was accepted, still refuses to start it.
 publish 0.2.0 1.1
