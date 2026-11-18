@@ -122,7 +122,7 @@ When it cannot go on, the log says why, in one sentence:
 | Something does not match its signed list                     | installs nothing new; starts the program installed before (checked again against its own kept list), or with none, tries again in 5 minutes; a release may be mid-publish |
 | It keeps not matching (more than 12 times in a row)          | the same, and asks you to report it                                     |
 | releases.hulbu.com has no build for this machine             | at the first start: says so, points here, and tries again in an hour; later: starts the program checked earlier, as with no network |
-| A newer release does not run on this machine                | installs it not; starts the program installed before, or with none, tries again in an hour |
+| A newer release does not run on this machine                | does not install it; starts the program installed before, or with none, tries again in an hour |
 
 ## Pinning the agents
 
