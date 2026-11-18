@@ -7,7 +7,8 @@
 # downloads it from releases.hulbu.com at start, checks its signature and checksums, and installs it into the volume.
 # The coding agents are installed into the volume at run time too. No Rust, no compiler, nothing built here.
 
-ARG TARGETARCH
+# TARGETARCH comes from BuildKit, in the global scope, without a declaration here. `docker buildx build --check`
+# sets none, hence the fallback below; a real build always sets it (CI checks Node's architecture in each image).
 ARG NODE_VERSION=24.22.3
 
 # Node, the official tarball. These two stages only fetch one file each and check its SHA-256; nothing else of them
@@ -23,7 +24,7 @@ ARG NODE_VERSION
 ADD --checksum=sha256:261af2af250dfd7e9f25cf151d1b2713a0adf8f10a9ad116c4947f68627affe8 \
     https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-arm64.tar.gz /node.tar.gz
 
-FROM node-${TARGETARCH} AS node
+FROM node-${TARGETARCH:-amd64} AS node
 
 # debian:bookworm-slim, pinned by the digest of its multi-architecture index (read 2026-11-18).
 FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc

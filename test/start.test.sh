@@ -322,6 +322,20 @@ contains "$world/out" "has no build for $platform" "release without this machine
 contains "$world/out" "RUNNING run" "release without this machine"
 publish 0.2.0 1.1
 
+# 19. A newer release is accepted, but its download breaks off: the program checked earlier still starts, because the
+#     kept signed list is replaced only after an install succeeded.
+publish 0.2.0 1.1
+world="$(online_world)"
+run_start "$world" || fail "before the broken download: exit $?"
+publish 0.3.0 1.1
+# Only the program files fail, as when the network goes away right after the release list was read.
+sed -i.files 's#response = await fetchImplementation(url#if (!url.includes("manifest.json")) throw new TypeError("offline"); response = await fetchImplementation(url#' \
+  "$world/lib/verify-release.mjs"
+run_start "$world" || fail "broken download: exit $?"
+contains "$world/out" "HulbuFactory 0.2.0, installed and checked earlier" "broken download"
+contains "$world/out" "RUNNING run" "broken download"
+publish 0.2.0 1.1
+
 # 14. An agent's install script changes the program and the saved release file together: the last check, made
 #     against the release as it was accepted, still refuses to start it.
 publish 0.2.0 1.1

@@ -149,6 +149,15 @@ install_practice() {
 
 # ── Online: the newest signed release from releases.hulbu.com ──────────────────────────────────────────────────
 
+# The release list just accepted becomes the kept one, for later starts without network, only once the program it
+# lists is installed and checked; until then the kept one stays the list of the program installed before.
+keep_signed() {
+  rm -rf "$SIGNED.previous"
+  if [[ -e "$SIGNED" ]]; then mv -T "$SIGNED" "$SIGNED.previous"; fi
+  mv -T "$SIGNED.pending" "$SIGNED"
+  rm -rf "$SIGNED.previous"
+}
+
 # No network, or a newest release without a build for this machine: start the program installed earlier, but only
 # after checking it again against the signed release list kept from that start (its signature with the pinned keys,
 # then both files). Never an unchecked program. $3 says why there is no update.
@@ -192,10 +201,11 @@ install_release() {
   while true; do
     code=0
     version="$(check check-manifest --keys "$SHARE/keys" --platform "$platform" \
-      --highest "$STATE/highest-version" --save "$SIGNED" --out "$release")" || code=$?
+      --highest "$STATE/highest-version" --save "$SIGNED.pending" --out "$release")" || code=$?
     if [[ "$code" -eq 0 ]]; then
       if check matches --release "$release" --folder "$VERSIONS/current"; then
         say "HulbuFactory $version is installed and matches the signed release."
+        keep_signed
         break
       fi
       say "Downloading HulbuFactory $version for $platform."
@@ -204,6 +214,7 @@ install_release() {
       check download --release "$release" --into "$partial" || code=$?
       if [[ "$code" -eq 0 ]]; then
         if install_folder "$partial" "$platform" release "$version" "$protocol"; then
+          keep_signed
           break
         fi
         rm -rf "$partial"
