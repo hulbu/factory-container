@@ -44,9 +44,11 @@ jobs:
           - platform: linux/amd64
             runner: ubuntu-24.04
             expected: linux-x64
+            node_arch: x64
           - platform: linux/arm64
             runner: ubuntu-24.04-arm # native arm64, no emulation
             expected: linux-arm64
+            node_arch: arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
@@ -63,12 +65,16 @@ jobs:
           load: true
           tags: hulbu-factory:ci
       - name: The programs in the image run
+        env:
+          NODE_ARCH: ${{ matrix.node_arch }}
         run: |
           for program in "node --version" "npm --version" "git --version" "gh --version" "bwrap --version"; do
             # shellcheck disable=SC2086
             docker run --rm --entrypoint "" hulbu-factory:ci $program
           done
           test "$(docker run --rm --entrypoint "" hulbu-factory:ci id -u)" = 10001
+          # Node for this architecture (the Dockerfile's FROM line has a fallback that only `--check` may use).
+          test "$(docker run --rm --entrypoint "" hulbu-factory:ci node -p process.arch)" = "$NODE_ARCH"
       - name: The release check's tests, inside the image
         run: docker run --rm --entrypoint "" -v "$PWD:/repository:ro" -w /repository hulbu-factory:ci node --test test/verify-release.test.mjs
       - name: The entrypoint against releases.hulbu.com, as compose runs it (a minute at most)
@@ -76,7 +82,7 @@ jobs:
           EXPECTED: ${{ matrix.expected }}
         run: |
           docker run -d --name start-check --init --read-only --tmpfs /tmp:rw,exec,nosuid,nodev \
-            --cap-drop ALL --security-opt no-new-privileges:true hulbu-factory:ci >/dev/null
+            --cap-drop ALL --security-opt no-new-privileges:true -v start-check:/home/hulbu hulbu-factory:ci >/dev/null
           # Until the first Linux release it must say so and start nothing; afterwards it must install the program.
           found=no
           for _ in $(seq 60); do
@@ -88,6 +94,7 @@ jobs:
           done
           docker logs start-check
           docker rm -f start-check >/dev/null
+          docker volume rm start-check >/dev/null
           test "$found" = yes
       - name: Size
         run: |
