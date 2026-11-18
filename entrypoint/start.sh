@@ -149,10 +149,20 @@ install_practice() {
 
 # ── Online: the newest signed release from releases.hulbu.com ──────────────────────────────────────────────────
 
-# No network: start the program installed earlier, but only after checking it again against the signed release list
-# kept from that start (its signature with the pinned keys, then both files). Never an unchecked program.
-start_offline() {
-  local platform="$1" release="$2" version
+# The release list just accepted becomes the kept one, for later starts without network, only once the program it
+# lists is installed and checked; until then the kept one stays the list of the program installed before.
+keep_signed() {
+  rm -rf "$SIGNED.previous"
+  if [[ -e "$SIGNED" ]]; then mv -T "$SIGNED" "$SIGNED.previous"; fi
+  mv -T "$SIGNED.pending" "$SIGNED"
+  rm -rf "$SIGNED.previous"
+}
+
+# No network, or a newest release without a build for this machine: start the program installed earlier, but only
+# after checking it again against the signed release list kept from that start (its signature with the pinned keys,
+# then both files). Never an unchecked program. $3 says why there is no update.
+start_installed() {
+  local platform="$1" release="$2" why="$3" version
   [[ -e "$VERSIONS/current" ]] || return 1
   if ! version="$(check check-stored --keys "$SHARE/keys" --platform "$platform" \
     --highest "$STATE/highest-version" --save "$SIGNED" --out "$release")"; then
@@ -163,8 +173,7 @@ start_offline() {
     say "The installed HulbuFactory program does not match the signed release list kept from an earlier start."
     return 1
   fi
-  say "releases.hulbu.com cannot be reached: the update check was skipped." \
-    "HulbuFactory $version, installed and checked earlier, matches its signed release list and starts."
+  say "$why" "HulbuFactory $version, installed and checked earlier, matches its signed release list and starts."
   return 0
 }
 
@@ -192,10 +201,11 @@ install_release() {
   while true; do
     code=0
     version="$(check check-manifest --keys "$SHARE/keys" --platform "$platform" \
-      --highest "$STATE/highest-version" --save "$SIGNED" --out "$release")" || code=$?
+      --highest "$STATE/highest-version" --save "$SIGNED.pending" --out "$release")" || code=$?
     if [[ "$code" -eq 0 ]]; then
       if check matches --release "$release" --folder "$VERSIONS/current"; then
         say "HulbuFactory $version is installed and matches the signed release."
+        keep_signed
         break
       fi
       say "Downloading HulbuFactory $version for $platform."
@@ -204,6 +214,7 @@ install_release() {
       check download --release "$release" --into "$partial" || code=$?
       if [[ "$code" -eq 0 ]]; then
         if install_folder "$partial" "$platform" release "$version" "$protocol"; then
+          keep_signed
           break
         fi
         rm -rf "$partial"
@@ -214,7 +225,7 @@ install_release() {
     fi
     case "$code" in
       10)
-        if start_offline "$platform" "$release"; then
+        if start_installed "$platform" "$release" "releases.hulbu.com cannot be reached: the update check was skipped."; then
           return 0
         fi
         say "Cannot check the HulbuFactory program without releases.hulbu.com, and there is no program checked earlier to start." \
@@ -222,6 +233,9 @@ install_release() {
         sleep 60
         ;;
       12)
+        if start_installed "$platform" "$release" "The newest release has no build for $platform, so there is no update."; then
+          return 0
+        fi
         say "Until it has, use a build of your own: see 'Practice with a local build' in the README."
         stop_after 3600
         ;;

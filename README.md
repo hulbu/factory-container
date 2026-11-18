@@ -97,7 +97,10 @@ docker compose exec factory hulbu status
    once (`hulbu version --json`) and installed. It keeps the signed list, so a later start without network can check
    the installed program against it. **Nothing that fails a check is ever run.**
 2. **The coding agents.** Claude Code, Codex and pi are each installed with npm into their own folder in the volume,
-   at their latest release, and then update themselves as they normally do. npm uses the public registry and checks
+   at their latest release. After that, Claude Code updates itself with its own updater (not tried yet in this
+   container). Codex and pi do not update themselves: they stay at the version first installed until you remove their
+   folder (`docker compose exec factory rm -rf .local/share/hulbu-factory/agents/codex`, then `docker compose
+   restart`), which installs the newest release again. npm uses the public registry and checks
    each package's integrity and the registry's signatures. An agent that cannot be installed is named in the log;
    the others are not affected, and it is tried again at the next start. To pin them instead, see
    [Pinning the agents](#pinning-the-agents).
@@ -118,7 +121,7 @@ When it cannot go on, the log says why, in one sentence:
 | No network at the first start                                | says so and tries again every minute                                    |
 | Something does not match its signed list                     | starts nothing; tries again in 5 minutes (a release may be mid-publish) |
 | It keeps not matching (more than 12 times in a row)          | starts nothing; asks you to report it; tries again once an hour         |
-| releases.hulbu.com has no build for this machine             | says so, points here, and tries again in an hour                        |
+| releases.hulbu.com has no build for this machine             | at the first start: says so, points here, and tries again in an hour; later: starts the program checked earlier, as with no network |
 | The downloaded program does not run on this machine          | starts nothing; tries again in an hour                                  |
 
 ## Pinning the agents
@@ -142,7 +145,8 @@ Then `docker compose up -d`. Remove the file to go back to the agents' normal up
 
 - **HulbuFactory:** `docker compose restart`. Each start installs the newest signed release when releases.hulbu.com
   can be reached.
-- **The agents** update themselves as they normally do (unless pinned).
+- **The agents:** Claude Code updates itself; Codex and pi are updated by removing their folder and restarting (see
+  [What happens at each start](#what-happens-at-each-start)); pinned agents follow the pin.
 - **The image** (Debian's security updates, Node, gh): `git pull`, `docker compose build`, `docker compose up -d`.
   Rebuild it about once a week.
 

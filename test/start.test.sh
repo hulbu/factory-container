@@ -305,6 +305,37 @@ run_start "$world" || true
 contains "$world/out" "no program checked earlier to start" "offline first start"
 contains "$world/sleeps" "slept 60" "offline first start"
 
+# 18. A later release with no build for this machine: the program checked earlier starts again, after its check
+#     against the kept signed list; the log says why there was no update.
+publish 0.2.0 1.1
+world="$(online_world)"
+run_start "$world" || fail "before the release without this machine: exit $?"
+other=linux-x64
+[[ "$platform" == linux-x64 ]] && other=linux-arm64
+files="$(mktemp -d)"
+fake_program "$files/hulbu" "$other" 0.3.0 1.1
+printf 'driver\n' >"$files/station-driver-claude"
+node "$here/fixtures/make-release.mjs" --out "$releases" --origin "$origin" --keys "$test_keys" --version 0.3.0 \
+  --protocol 1.1 --platform "$other" --program "$files/hulbu" --driver "$files/station-driver-claude"
+run_start "$world" || fail "release without this machine: exit $?"
+contains "$world/out" "has no build for $platform" "release without this machine"
+contains "$world/out" "RUNNING run" "release without this machine"
+publish 0.2.0 1.1
+
+# 19. A newer release is accepted, but its download breaks off: the program checked earlier still starts, because the
+#     kept signed list is replaced only after an install succeeded.
+publish 0.2.0 1.1
+world="$(online_world)"
+run_start "$world" || fail "before the broken download: exit $?"
+publish 0.3.0 1.1
+# Only the program files fail, as when the network goes away right after the release list was read.
+sed -i.files 's#response = await fetchImplementation(url#if (!url.includes("manifest.json")) throw new TypeError("offline"); response = await fetchImplementation(url#' \
+  "$world/lib/verify-release.mjs"
+run_start "$world" || fail "broken download: exit $?"
+contains "$world/out" "HulbuFactory 0.2.0, installed and checked earlier" "broken download"
+contains "$world/out" "RUNNING run" "broken download"
+publish 0.2.0 1.1
+
 # 14. An agent's install script changes the program and the saved release file together: the last check, made
 #     against the release as it was accepted, still refuses to start it.
 publish 0.2.0 1.1
