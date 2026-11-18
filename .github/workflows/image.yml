@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # docker/build-push-action would upload a build record as an Actions artifact: no artifacts from this workflow.
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+
 concurrency:
   group: image-${{ github.ref }}
   cancel-in-progress: false
