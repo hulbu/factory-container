@@ -74,7 +74,9 @@ COPY --chmod=0755 bin/hulbu /usr/local/bin/hulbu
 
 # Fixed values of the image, none of them a secret or a choice: secrets in files (and so every agent sandboxed, or not
 # started); the agents last on PATH, so nothing in the volume can stand in for a system program.
+# HULBU_BINFMT_FOLDER: where the compose file shows the host's binfmt_misc handler list (read only) to the sandbox check.
 ENV HULBU_SECRET_STORE=file \
+    HULBU_BINFMT_FOLDER=/run/host/binfmt_misc \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_FUND=false \
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/hulbu/.local/share/hulbu-factory/agents/bin

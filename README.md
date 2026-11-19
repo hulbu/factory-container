@@ -20,12 +20,13 @@ Read this before you install:
    with a build of your own (see [Practice with a local build](#practice-with-a-local-build)).
 2. **No image is published yet.** You build it once yourself (see [Install](#install)). Never build on a Raspberry Pi:
    build on another machine and copy the image over.
-3. **Taking jobs depends on one more check.** HulbuFactory runs each agent in its own sandbox (bubblewrap) and starts
-   no job when that sandbox is not available. The compose file now gives the container exactly what that sandbox
-   needs (see [The agents' sandbox](#the-agents-sandbox)). HulbuFactory also checks the host's `binfmt_misc` handlers
-   before it trusts its sandbox, and a container cannot see them. On a host whose kernel has `binfmt_misc` (most do),
-   that check still says "unavailable" and no job starts, until a HulbuFactory release can read the handlers from a
-   container. `hulbu sandbox check` says which case you are in.
+3. **Taking jobs needs a HulbuFactory release that reads `HULBU_BINFMT_FOLDER`.** HulbuFactory runs each agent in its
+   own sandbox (bubblewrap) and starts no job when that sandbox is not available. The compose file gives the container
+   exactly what that sandbox needs (see [The agents' sandbox](#the-agents-sandbox)). HulbuFactory also checks the
+   host's `binfmt_misc` handlers before it trusts its sandbox; the compose file shows it the host's list, read only, at
+   `/run/host/binfmt_misc`, and the image names that folder in `HULBU_BINFMT_FOLDER`. A HulbuFactory build that does not
+   read that variable yet still says "unavailable" on a host whose kernel has `binfmt_misc` (most do), and takes no
+   job. `hulbu sandbox check` says which case you are in.
 
 ## What you need
 
@@ -90,8 +91,14 @@ default settings refuse. `docker-compose.yml` therefore adds exactly this, and n
 - **`systempaths=unconfined`**: bubblewrap mounts a fresh `/proc` for each agent, and the kernel allows that only when
   the container's `/proc` is not partly hidden. The container can then read kernel files Docker normally hides
   (`/proc/kcore`, `/proc/keys`, `/proc/timer_list`, `/sys/firmware`); without capabilities it cannot write to them.
+- **`/proc/sys/fs/binfmt_misc:/run/host/binfmt_misc:ro`**: the host's `binfmt_misc` handler list, read only. A handler
+  can make Linux run a program outside every sandbox (an emulator, or a tool that forwards programs to another
+  machine), so HulbuFactory reads this list before it trusts its sandbox, and refuses when it cannot. The list holds
+  no data, only the handlers' names, magic bytes and interpreters; with no capability the container cannot change it.
+  On a host where systemd mounts `binfmt_misc` only when it is first used, run `ls /proc/sys/fs/binfmt_misc` once
+  before `docker compose up`, or the container may see an empty folder (and the check then refuses).
 - Kept from before: `no-new-privileges`, `cap_drop: [ALL]`, a read-only root, user 10001. Never `--privileged`, never
-  the Docker socket.
+  the Docker socket. This bind is the only host folder the container gets.
 
 **On a host with AppArmor on** (`cat /sys/module/apparmor/parameters/enabled` says `Y`: Debian, Ubuntu; not
 Raspberry Pi OS), Docker's own AppArmor profile refuses every mount. Load this repository's profile once, as root, and
