@@ -177,9 +177,9 @@ start_installed() {
   return 0
 }
 
-# Repeated mismatches: the first hour (12 tries, 5 minutes apart) can be a release being published; after that it
-# is worth a person's look, and the container tries only once an hour.
-refuse_mismatch() {
+# Counts a mismatch in a row and says what it means. The first hour (12 tries, 5 minutes apart) can be a release being
+# published; after that it is worth a person's look. Prints how long to wait before trying again.
+count_mismatch() {
   local count=0
   if [[ -f "$STATE/mismatches" ]]; then
     count="$(<"$STATE/mismatches")"
@@ -188,16 +188,17 @@ refuse_mismatch() {
   count=$((count + 1))
   printf '%s\n' "$count" >"$STATE/mismatches"
   if ((count <= 12)); then
-    say "Nothing was started. This happens for a minute or two while a new release is being published."
-    stop_after 300
+    say "Nothing new was installed. This happens for a minute or two while a new release is being published."
+    printf '300\n'
+  else
+    say "Nothing new was installed, and this has happened $count times in a row." \
+      "Do not use this machine's download: report it to Hulbu (see the README)."
+    printf '3600\n'
   fi
-  say "Nothing was started, and this has happened $count times in a row." \
-    "Do not use this machine's download: report it to Hulbu (see the README)."
-  stop_after 3600
 }
 
 install_release() {
-  local platform="$1" release="$2" version protocol code partial
+  local platform="$1" release="$2" version protocol code partial wait_seconds
   while true; do
     code=0
     version="$(check check-manifest --keys "$SHARE/keys" --platform "$platform" \
@@ -217,8 +218,12 @@ install_release() {
           keep_signed
           break
         fi
-        rm -rf "$partial"
-        say "HulbuFactory $version from releases.hulbu.com does not start here. Nothing was started."
+        rm -rf "$partial" "$SIGNED.pending"
+        say "HulbuFactory $version from releases.hulbu.com does not start here, so it was not installed."
+        # Never the new one: the program installed before, checked again against its own kept list, if there is one.
+        if start_installed "$platform" "$release" "Starting the program installed before instead."; then
+          return 0
+        fi
         stop_after 3600
       fi
       rm -rf "$partial"
@@ -240,8 +245,14 @@ install_release() {
         stop_after 3600
         ;;
       *)
+        rm -rf "$SIGNED.pending"
         say "The HulbuFactory program from releases.hulbu.com does not match its signed list (see the line above)."
-        refuse_mismatch
+        wait_seconds="$(count_mismatch)"
+        if start_installed "$platform" "$release" "Starting the program installed before instead."; then
+          return 0
+        fi
+        say "There is no program checked earlier to start."
+        stop_after "$wait_seconds"
         ;;
     esac
   done

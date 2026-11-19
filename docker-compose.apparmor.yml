@@ -1,0 +1,10 @@
+# Only on a host where AppArmor is on (check: `cat /sys/module/apparmor/parameters/enabled` says Y). Load the profile
+# once as root (`apparmor_parser -r -W profiles/apparmor/hulbu-factory`), then start with both files:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.apparmor.yml up -d
+#
+# See "The agents' sandbox" in the README.
+services:
+  factory:
+    security_opt:
+      - apparmor=hulbu-factory
