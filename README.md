@@ -20,10 +20,12 @@ Read this before you install:
    with a build of your own (see [Practice with a local build](#practice-with-a-local-build)).
 2. **No image is published yet.** You build it once yourself (see [Install](#install)). Never build on a Raspberry Pi:
    build on another machine and copy the image over.
-3. **It does not take jobs yet.** HulbuFactory runs each agent in its own sandbox and starts no job when that sandbox
-   is not available. Inside a container with Docker's normal settings, it is not, and how the sandbox should work in
-   a container is still being decided. Until then this version installs, signs in and shows its status, and takes no
-   job.
+3. **Taking jobs depends on one more check.** HulbuFactory runs each agent in its own sandbox (bubblewrap) and starts
+   no job when that sandbox is not available. The compose file now gives the container exactly what that sandbox
+   needs (see [The agents' sandbox](#the-agents-sandbox)). HulbuFactory also checks the host's `binfmt_misc` handlers
+   before it trusts its sandbox, and a container cannot see them. On a host whose kernel has `binfmt_misc` (most do),
+   that check still says "unavailable" and no job starts, until a HulbuFactory release can read the handlers from a
+   container. `hulbu sandbox check` says which case you are in.
 
 ## What you need
 
@@ -36,6 +38,22 @@ Read this before you install:
   SD card.
 - An account on hulbu.com in the organization the device will work for, a Claude account, and a GitHub account that
   has access only to the repositories the jobs need (never an organization owner's account).
+
+## Prepare a Raspberry Pi (once)
+
+On Raspberry Pi OS (64-bit) with Docker Engine installed from Docker's own package repository, these are the only
+commands that need `sudo`:
+
+```sh
+sudo systemctl enable --now docker               # start Docker now and at every boot
+sudo apt-get install -y docker-compose-plugin    # `docker compose`
+sudo usermod -aG docker "$USER"                  # use Docker without sudo; then log out and back in
+```
+
+Membership of the `docker` group is as good as root on that machine; give it only to the person who runs
+HulbuFactory. Then check, without `sudo`: `docker compose version`, `docker info`, and `sysctl user.max_user_namespaces`
+(it must be more than 0; Raspberry Pi OS allows them). AppArmor is off on Raspberry Pi OS, so the AppArmor step below
+does not apply. Everything after this runs as you, without `sudo`.
 
 ## Install
 
@@ -57,6 +75,40 @@ scp hulbu-factory-arm64.tar pi@your-pi:            # then, on the Pi:
 docker load -i hulbu-factory-arm64.tar
 docker compose up -d --no-build                     # in a clone of this repository on the Pi; never builds there
 ```
+
+## The agents' sandbox
+
+Each agent runs in its own sandbox (bubblewrap) inside the container: it sees only its own job's folder and the
+system's programs, not the sign-ins or the other jobs. Bubblewrap needs an unprivileged user namespace, which Docker's
+default settings refuse. `docker-compose.yml` therefore adds exactly this, and nothing more:
+
+- **`seccomp=./profiles/seccomp.json`**: Docker's default seccomp profile plus one rule allowing `clone` and `unshare`
+  with namespace flags, `mount`, `umount2` and `pivot_root`. Docker normally allows them only with `CAP_SYS_ADMIN`;
+  this container has **no capability at all** (`cap_drop: [ALL]`), so these calls work only inside the namespaces
+  bubblewrap makes, not on the container's own mounts. `profiles/make-seccomp.sh` rebuilds the file from Docker's
+  profile, pinned by commit and checksum.
+- **`systempaths=unconfined`**: bubblewrap mounts a fresh `/proc` for each agent, and the kernel allows that only when
+  the container's `/proc` is not partly hidden. The container can then read kernel files Docker normally hides
+  (`/proc/kcore`, `/proc/keys`, `/proc/timer_list`, `/sys/firmware`); without capabilities it cannot write to them.
+- Kept from before: `no-new-privileges`, `cap_drop: [ALL]`, a read-only root, user 10001. Never `--privileged`, never
+  the Docker socket.
+
+**On a host with AppArmor on** (`cat /sys/module/apparmor/parameters/enabled` says `Y`: Debian, Ubuntu; not
+Raspberry Pi OS), Docker's own AppArmor profile refuses every mount. Load this repository's profile once, as root, and
+start with the extra file:
+
+```sh
+sudo apparmor_parser -r -W profiles/apparmor/hulbu-factory
+docker compose -f docker-compose.yml -f docker-compose.apparmor.yml up -d
+```
+
+The profile is Docker's own with three changes, each marked in the file: mounts and `pivot_root`, `userns`, and
+writes to `/proc/sys/user/` (for bubblewrap's `--disable-userns`). It needs AppArmor 4 (Debian 13, Ubuntu 24.04). To
+remove it: `sudo apparmor_parser -R profiles/apparmor/hulbu-factory`.
+
+What this costs: user namespaces open parts of the kernel that most local privilege-escalation bugs go through, so give
+HulbuFactory a machine that runs nothing else. An agent that escapes its sandbox reaches everything in the container
+(the sign-ins, every job's folder); after anything suspicious, remove the device and the volume and install again.
 
 ## Sign in (once)
 
