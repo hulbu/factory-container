@@ -1,0 +1,58 @@
+# For Coolify (a "Docker Compose" resource) and any host that takes ONE compose file: everything docker-compose.yml,
+# docker-compose.apparmor.yml and the practice file give, in one place, plus firm limits for a machine that runs other
+# work. Read "Coolify" in the README first. Before the first deploy, on the host:
+#   - load the AppArmor profile (REQUIRED on Ubuntu 24.04 and other AppArmor hosts; without it user namespaces are
+#     refused and no agent starts): sudo apparmor_parser -r -W profiles/apparmor/hulbu-factory
+#   - load the image (it is never built or pulled here): gunzip -c hulbu-factory-amd64.tar.gz | docker load
+#   - create the practice volume, even empty: docker volume create hulbu-factory-practice
+#   - the network fence (README "A fence on a shared machine"), because this container's network is its own.
+# In Coolify: no domain for this service, "Connect to predefined network" off, no port published.
+# Settings, all optional (Coolify's environment variables; none is a secret):
+#   HULBU_FACTORY_NAME   the device's name at its first sign-in (default hulbufactory)
+#   HULBU_FACTORY_CPUS   CPU time, in CPUs (default 4)      HULBU_FACTORY_MEMORY   memory, no swap (default 8g)
+#   HULBU_PRACTICE_SHA256, HULBU_PRACTICE_DRIVER_SHA256   only for a build of your own in the practice volume
+services:
+  factory:
+    image: hulbu-factory:local
+    pull_policy: never # the image is loaded by hand (README "Install"); never built or pulled on this host
+    init: true
+    restart: unless-stopped
+    hostname: ${HULBU_FACTORY_NAME:-hulbufactory}
+    user: "10001:10001" # never root
+    read_only: true
+    tmpfs:
+      - /tmp:rw,exec,nosuid,nodev,size=2g,mode=1777
+    cap_drop: [ALL] # no capability at all: never add one, never privileged, never the Docker socket
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./profiles/seccomp.json # Docker's default plus what an unprivileged user namespace needs
+      - apparmor=hulbu-factory # REQUIRED on AppArmor hosts: profiles/apparmor/hulbu-factory, loaded on the host
+      # RULE: safe only together with `user` (not root) and `cap_drop: [ALL]` above (README "The agents' sandbox").
+      - systempaths=unconfined
+    pids_limit: 4096
+    cpus: ${HULBU_FACTORY_CPUS:-4}
+    cpu_shares: 128 # low weight: other work on the host keeps priority under load
+    mem_limit: ${HULBU_FACTORY_MEMORY:-8g}
+    memswap_limit: ${HULBU_FACTORY_MEMORY:-8g} # the same as mem_limit: no swap
+    stop_grace_period: 2m
+    environment:
+      HULBU_PRACTICE_SHA256: ${HULBU_PRACTICE_SHA256:-}
+      HULBU_PRACTICE_DRIVER_SHA256: ${HULBU_PRACTICE_DRIVER_SHA256:-}
+    volumes:
+      - factory:/home/hulbu # everything: the program, the logins, the agents, the work
+      - practice:/practice:ro # empty: the signed release; holding hulbu and station-driver-claude: practice
+      - /proc/sys/fs/binfmt_misc:/run/host/binfmt_misc:ro # the host's binfmt handler list, read only (the only host folder)
+    networks: [factory]
+
+networks:
+  factory:
+    driver_opts:
+      com.docker.network.bridge.name: br-hulbu
+    ipam:
+      config: [{ subnet: 172.30.86.0/24 }] # the fence's rules match this subnet
+
+volumes:
+  factory: {}
+  practice:
+    external: true
+    name: hulbu-factory-practice

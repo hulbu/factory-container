@@ -1,0 +1,18 @@
+#!/bin/sh
+# The HulbuFactory container's egress fence, for a machine that runs other work (README "A fence on a shared
+# machine"). It matches the container's own subnet (docker-compose.coolify.yml: 172.30.86.0/24), so it holds whatever
+# a deploy names the network. From that subnet: no other Docker network, no private or home network, no tailnet
+# (100.64.0.0/10), no cloud metadata, no mail ports, and no new connection to the host itself. Safe to run again: each
+# rule is added once. Run as root, from the systemd unit beside this file.
+set -eu
+subnet="${HULBU_FACTORY_SUBNET:-172.30.86.0/24}"
+add() {
+  chain="$1"
+  shift
+  iptables -C "$chain" "$@" 2>/dev/null || iptables -I "$chain" "$@"
+}
+for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16; do
+  add DOCKER-USER -s "$subnet" -d "$net" -m comment --comment hulbu-factory -j DROP
+done
+add DOCKER-USER -s "$subnet" -p tcp -m multiport --dports 25,465,587,2525 -m comment --comment hulbu-factory -j DROP
+add INPUT -s "$subnet" -m conntrack --ctstate NEW -m comment --comment hulbu-factory -j DROP

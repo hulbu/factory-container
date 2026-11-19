@@ -274,10 +274,69 @@ nothing and says which file. To go back to the signed release, start with `docke
 
 ## Coolify
 
-Not tried yet. The plan: create a **Docker Compose** resource from this repository, pointing it at
-`docker-compose.yml`, with no environment variable to set. Then open a terminal in the `factory` container (from
-Coolify, or `docker exec -it <container> bash` on the server) and run the three commands of [Sign in](#sign-in-once).
-To remove it, delete the resource **and its volume**, after the server-side steps of [Removing it](#removing-it).
+Coolify takes **one** compose file: use `docker-compose.coolify.yml`. It holds everything the other files give (the
+seccomp and AppArmor profiles, the binfmt list, the practice volume), plus firm limits for a machine that runs other
+work: 4 CPUs at a low weight, 8 GB with no swap, 4096 processes, its own network, no port published.
+
+**On the host first** (once, as an administrator):
+
+1. `sudo apparmor_parser -r -W profiles/apparmor/hulbu-factory` from a checkout of this repository. **Required** on
+   Ubuntu 24.04 and other AppArmor hosts: without it, user namespaces are refused and no agent starts.
+2. The image, loaded by hand (Coolify never builds or pulls it): `gunzip -c hulbu-factory-amd64.tar.gz | docker load`.
+3. `docker volume create hulbu-factory-practice` (empty unless you practise with a build of your own).
+4. The network fence: see [A fence on a shared machine](#a-fence-on-a-shared-machine).
+
+**In Coolify** (the names are Coolify 4's; they may differ a little in other versions):
+
+1. Your project → **+ New** → **Public Repository** → `https://github.com/hulbu/factory-container`, branch `main`.
+2. **Build Pack: Docker Compose**, Base Directory `/`, Docker Compose Location `/docker-compose.coolify.yml`.
+3. The service `factory`: **no domain**. **Connect To Predefined Network: off** (so it never joins Coolify's shared
+   network). No port.
+4. Environment variables (none is a secret): `HULBU_FACTORY_NAME`, and only if you want other limits
+   `HULBU_FACTORY_CPUS`, `HULBU_FACTORY_MEMORY`.
+5. **Deploy**. Then the resource's **Terminal**, container `factory`: the three commands of
+   [Sign in](#sign-in-once) (without `docker compose exec -it factory`).
+
+To remove it: the server-side steps of [Removing it](#removing-it), then delete the resource **and its volumes** in
+Coolify, the image, the fence and the AppArmor profile.
+
+## A fence on a shared machine
+
+On a machine that runs other work (Coolify's apps, databases, CI), the container must not reach them. With
+`docker-compose.coolify.yml` it has its own subnet, `172.30.86.0/24`, and `profiles/fence/` holds rules for that
+subnet: no other Docker network or private network (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), no tailnet
+(100.64.0.0/10), no cloud metadata (169.254.0.0/16), no mail ports, and no new connection to the host itself. A systemd
+unit loads them at boot and again after every Docker start. They match the subnet, so a redeploy that renames the
+network keeps them.
+
+```sh
+sudo install -m 755 profiles/fence/hulbu-factory-fence /usr/local/sbin/
+sudo install -m 644 profiles/fence/hulbu-factory-fence.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now hulbu-factory-fence.service
+sudo iptables -S DOCKER-USER | grep -c hulbu-factory    # 6
+sudo iptables -S INPUT | grep -c hulbu-factory          # 1
+```
+
+**Check it**, from inside the container, after the first deploy, after `sudo systemctl restart docker`, and after
+every redeploy: each line must say `refused` except the last, `https://api.hulbu.com`.
+
+```sh
+node -e '
+const net = require("net");
+const tcp = (host, port) => new Promise(done => { const s = net.connect({ host, port, timeout: 3000 });
+  s.on("connect", () => { s.destroy(); done(`${host}:${port} REACHED`); });
+  s.on("timeout", () => { s.destroy(); done(`${host}:${port} refused`); }); s.on("error", () => done(`${host}:${port} refused`)); });
+(async () => {
+  for (const [host, port] of [["169.254.169.254", 80], ["10.0.0.1", 80], ["172.17.0.1", 80], ["192.168.1.1", 80],
+                              ["172.30.86.1", 22], ["smtp.gmail.com", 25]]) console.log(await tcp(host, port));
+  const r = await fetch("https://api.hulbu.com", { signal: AbortSignal.timeout(5000) }).catch(e => null);
+  console.log("https://api.hulbu.com", r ? "REACHED " + r.status : "refused (must be REACHED)");
+})();'
+```
+
+Add your own host's addresses and ports to the list (its LAN address, the gateway of another app's network).
+Undo: `sudo systemctl disable --now hulbu-factory-fence.service`, remove the two installed files, and delete each
+`hulbu-factory` rule by its comment (`sudo iptables -S DOCKER-USER`, `sudo iptables -S INPUT`, then `-D`).
 
 ## Removing it
 

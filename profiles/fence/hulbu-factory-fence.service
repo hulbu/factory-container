@@ -1,0 +1,16 @@
+# Loads profiles/fence/hulbu-factory-fence at boot and again after every Docker start (Docker rewrites its chains).
+# Install: sudo install -m 755 profiles/fence/hulbu-factory-fence /usr/local/sbin/
+#          sudo install -m 644 profiles/fence/hulbu-factory-fence.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable --now hulbu-factory-fence.service
+[Unit]
+Description=HulbuFactory container egress fence
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/hulbu-factory-fence
+
+[Install]
+WantedBy=multi-user.target docker.service
