@@ -25,6 +25,9 @@ services:
     stop_grace_period: 2m # time for the agents to finish their turn on `docker compose down`
     volumes:
       - factory:/home/hulbu # everything: the program, the logins, the agents, the work
+      # The host's binfmt_misc handler list, read only (a kernel list, no data), so HulbuFactory's sandbox check can
+      # see which programs Linux would run outside the sandbox. A container cannot see that list any other way.
+      - /proc/sys/fs/binfmt_misc:/run/host/binfmt_misc:ro
 
 volumes:
   factory: {}
