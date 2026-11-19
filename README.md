@@ -135,10 +135,19 @@ echo 'HULBU_FACTORY_NAME=pi' >.env       # next to docker-compose.yml; Compose r
 docker compose up -d
 ```
 
-A name only letters, digits and `-` (it is a hostname). **Renaming a device that is already signed in** is not
-possible yet: the name is sent once, at sign-in, and there is no rename on hulbu.com or in `hulbu`. To change it now:
-Remove the device on hulbu.com, set the new name as above, `docker compose up -d`, then `docker compose exec -it factory
-hulbu logout` and `hulbu login` again. The Claude and GitHub sign-ins in the volume stay.
+A name only letters, digits and `-` (it is a hostname). `hulbu login --name <name>` also sets the name at sign-in,
+whatever the hostname is.
+
+**Renaming a device that is already signed in** is not possible yet: the name is sent once, at sign-in, and there is no
+rename on hulbu.com or in `hulbu`. To change it now, sign in again with the new name: Remove the device on hulbu.com,
+then
+
+```sh
+docker compose exec -it factory hulbu logout
+docker compose exec -it factory hulbu login --name pi
+```
+
+The Claude and GitHub sign-ins in the volume stay.
 
 ## Sign in (once)
 
