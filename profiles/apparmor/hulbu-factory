@@ -6,8 +6,9 @@
 #   - userns: making an unprivileged user namespace (Ubuntu 23.10 and later refuse it to unconfined programs);
 #   - writes to /proc/sys/user/ are allowed, for bubblewrap's --disable-userns. The container's own /proc/sys is read
 #     only; this reaches only the limits inside a sandbox's own user namespace.
-# Load it once on the host (as root):  apparmor_parser -r -W profiles/apparmor/hulbu-factory
-# Remove it:                           apparmor_parser -R profiles/apparmor/hulbu-factory
+# Install it on the host (as root), so it loads at every boot:
+#   install -m 644 profiles/apparmor/hulbu-factory /etc/apparmor.d/ && apparmor_parser -r -W /etc/apparmor.d/hulbu-factory
+# Remove it: apparmor_parser -R /etc/apparmor.d/hulbu-factory && rm /etc/apparmor.d/hulbu-factory
 abi <abi/4.0>,
 include <tunables/global>
 
