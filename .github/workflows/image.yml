@@ -105,7 +105,13 @@ jobs:
             exit 1
           fi
           out="$("${compose[@]}" run --rm --no-deps --entrypoint "" factory "${sandbox[@]}")"
+          # The host's binfmt_misc list is readable where HULBU_BINFMT_FOLDER says (systemd mounts it on first use).
+          ls /proc/sys/fs/binfmt_misc >/dev/null
+          # shellcheck disable=SC2016 # expanded inside the container
+          binfmt="$("${compose[@]}" run --rm --no-deps --entrypoint "" factory sh -c 'head -n 1 "$HULBU_BINFMT_FOLDER/status"')"
           "${compose[@]}" down -v
+          echo "binfmt_misc status seen in the container: $binfmt"
+          test "$binfmt" = enabled
           echo "$out"
           test "$out" = sandbox-ok
       - name: The entrypoint against releases.hulbu.com, as compose runs it (a minute at most)
