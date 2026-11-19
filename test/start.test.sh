@@ -75,6 +75,9 @@ fake_program() {
 #!/usr/bin/env bash
 if [[ "\$1" == version ]]; then
   printf '{"version":"$version","protocol":"$protocol","platform":"$platform","rollback":true,"install":"production","build":"abc1234"}\n'
+elif [[ "\$1" == sandbox && "\$2" == on ]]; then
+  mkdir -p "\$HOME/.hulbu/sandbox" && printf '{"mode":"on"}\n' >"\$HOME/.hulbu/sandbox/setting.json"
+  printf 'SANDBOX on\n'
 else
   printf 'RUNNING %s\n' "\$*"
 fi
@@ -108,6 +111,8 @@ contains "$world/out" "Practice build, not signed" practice
 contains "$world/out" "HulbuFactory 0.1.144+abc1234 is installed." practice
 contains "$world/out" "RUNNING run" practice
 [[ "$(readlink "$world/home/.hulbu/versions/current")" == "0.1.144+abc1234" ]] || fail "practice: current is not 0.1.144+abc1234"
+# The first start turns the agents' sandbox on (the stricter setting), so `hulbu sandbox check` says what is true.
+contains "$world/out" "SANDBOX on" "practice: sandbox on at the first start"
 contains "$world/npm-calls" "@anthropic-ai/claude-code@latest" "practice agents"
 [[ -x "$world/home/.local/share/hulbu-factory/agents/bin/codex" ]] || fail "practice agents: codex is not linked"
 contains "$world/npm-calls" "audit signatures" "practice agents"
@@ -117,6 +122,8 @@ rm -f "$world/npm-calls"
 run_start "$world" HULBU_PRACTICE_SHA256="$(sha "$world/practice/hulbu")" \
   HULBU_PRACTICE_DRIVER_SHA256="$(sha "$world/practice/station-driver-claude")" || fail "second start failed"
 [[ ! -e "$world/npm-calls" ]] || fail "second start: npm ran again"
+# A setting the person already has (on or off) is never changed by a later start.
+if grep -F "SANDBOX on" "$world/out" >/dev/null; then fail "second start: the sandbox setting was written again"; fi
 
 # 1c. Pinned (the optional setting): exact versions, from the image's list in practice.
 world="$(new_world)"
