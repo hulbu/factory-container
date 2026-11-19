@@ -32,6 +32,10 @@ jobs:
         run: node --test test/verify-release.test.mjs
       - name: The entrypoint's tests (one case reads releases.hulbu.com)
         run: bash test/start.test.sh
+      - name: The seccomp profile is what profiles/make-seccomp.sh writes from Docker's pinned default
+        run: |
+          bash profiles/make-seccomp.sh
+          git diff --exit-code -- profiles/seccomp.json
       - name: The compose files
         run: |
           docker compose config -q
@@ -67,7 +71,9 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           load: true
-          tags: hulbu-factory:ci
+          tags: |
+            hulbu-factory:ci
+            hulbu-factory:local
       - name: The programs in the image run
         env:
           NODE_ARCH: ${{ matrix.node_arch }}
@@ -81,6 +87,27 @@ jobs:
           test "$(docker run --rm --entrypoint "" hulbu-factory:ci node -p process.arch)" = "$NODE_ARCH"
       - name: The release check's tests, inside the image
         run: docker run --rm --entrypoint "" -v "$PWD:/repository:ro" -w /repository hulbu-factory:ci node --test test/verify-release.test.mjs
+      - name: The agents' sandbox works inside the container, through the compose files
+        # The runner is Ubuntu 24.04: AppArmor is on and unprivileged user namespaces are restricted, so this also
+        # tests the AppArmor profile. The bubblewrap flags are those HulbuFactory uses for every agent.
+        run: |
+          sudo apparmor_parser -r -W profiles/apparmor/hulbu-factory
+          # shellcheck disable=SC2016 # the inner command runs inside the sandbox, not here
+          sandbox=(bwrap --unshare-user --disable-userns --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-try
+            --die-with-parent --new-session --cap-drop ALL
+            --ro-bind /usr /usr --ro-bind-try /bin /bin --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64
+            --ro-bind /etc /etc --proc /proc --dev /dev --tmpfs /tmp --tmpfs /dev/shm --remount-ro /
+            /bin/sh -c 'test "$(id -u)" = 10001 && test ! -e /home/hulbu && ! unshare -U true 2>/dev/null && echo sandbox-ok')
+          compose=(docker compose -f docker-compose.yml -f docker-compose.apparmor.yml)
+          # With Docker's defaults the same sandbox is refused (so the profiles are what makes it work).
+          if docker run --rm --entrypoint "" --user 10001:10001 hulbu-factory:ci "${sandbox[@]}" >/dev/null 2>&1; then
+            echo "::error::the sandbox worked with Docker's default settings; this check proves nothing"
+            exit 1
+          fi
+          out="$("${compose[@]}" run --rm --no-deps --entrypoint "" factory "${sandbox[@]}")"
+          "${compose[@]}" down -v
+          echo "$out"
+          test "$out" = sandbox-ok
       - name: The entrypoint against releases.hulbu.com, as compose runs it (a minute at most)
         env:
           EXPECTED: ${{ matrix.expected }}
