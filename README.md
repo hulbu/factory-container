@@ -89,8 +89,11 @@ default settings refuse. `docker-compose.yml` therefore adds exactly this, and n
   bubblewrap makes, not on the container's own mounts. `profiles/make-seccomp.sh` rebuilds the file from Docker's
   profile, pinned by commit and checksum.
 - **`systempaths=unconfined`**: bubblewrap mounts a fresh `/proc` for each agent, and the kernel allows that only when
-  the container's `/proc` is not partly hidden. The container can then read kernel files Docker normally hides
-  (`/proc/kcore`, `/proc/keys`, `/proc/timer_list`, `/sys/firmware`); without capabilities it cannot write to them.
+  the container's `/proc` is not partly hidden. This removes both of Docker's lists: the **masked** paths (files it
+  hides: `/proc/kcore`, `/proc/keys`, `/proc/timer_list`, `/sys/firmware` and others) and the **read-only** paths
+  (`/proc/sys`, `/proc/sysrq-trigger`, `/proc/irq`, `/proc/bus` and others). **Rule: this is safe only because the
+  container never runs as root and holds no capability** (`user: "10001:10001"`, `cap_drop: [ALL]`): the kernel then
+  refuses writes to those files anyway. Never add a capability, `--privileged` or `user: root` to this file.
 - **`/proc/sys/fs/binfmt_misc:/run/host/binfmt_misc:ro`**: the host's `binfmt_misc` handler list, read only. A handler
   can make Linux run a program outside every sandbox (an emulator, or a tool that forwards programs to another
   machine), so HulbuFactory reads this list before it trusts its sandbox, and refuses when it cannot. The list holds
@@ -113,8 +116,13 @@ The profile is Docker's own with three changes, each marked in the file: mounts 
 writes to `/proc/sys/user/` (for bubblewrap's `--disable-userns`). It needs AppArmor 4 (Debian 13, Ubuntu 24.04). To
 remove it: `sudo apparmor_parser -R profiles/apparmor/hulbu-factory`.
 
-What this costs: user namespaces open parts of the kernel that most local privilege-escalation bugs go through, so give
-HulbuFactory a machine that runs nothing else. An agent that escapes its sandbox reaches everything in the container
+**What giving the container user namespaces costs.** Docker refuses them by default for a reason. Inside a user
+namespace a program is "root" of its own small world, and with that it can reach kernel code that ordinary programs
+never reach: file systems it may mount, network and other namespaces it may make. Most bugs that let a local
+program become root of the whole machine are found in exactly that code. With this compose file, an agent that has
+escaped its sandbox (or any program in the container) can try those bugs; one that works makes it root on the host,
+with everything on the machine. That is why HulbuFactory needs a machine that runs nothing else, kept up to date
+(kernel updates and reboots), and never a shared server. An agent that escapes its sandbox reaches everything in the container
 (the sign-ins, every job's folder); after anything suspicious, remove the device and the volume and install again.
 
 ## Sign in (once)

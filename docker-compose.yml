@@ -19,8 +19,10 @@ services:
       # says exactly what), so HulbuFactory can put each agent in its own sandbox (bubblewrap) inside the container.
       - seccomp=./profiles/seccomp.json
       # The sandbox mounts a fresh /proc for each agent; the kernel allows that only when the container's /proc is not
-      # partly hidden. This shows the container read-only kernel files Docker hides by default (/proc/kcore,
-      # /proc/keys, /proc/timer_list, /sys/firmware); with no capability it cannot write to them.
+      # partly hidden. This removes Docker's masked paths (/proc/kcore, /proc/keys, /proc/timer_list, /sys/firmware
+      # and others) AND its read-only paths (/proc/sys, /proc/sysrq-trigger, /proc/irq, /proc/bus and others).
+      # RULE: this line is safe only together with `user` (not root) and `cap_drop: [ALL]` above. Never run this
+      # container as root or with any capability while it is here.
       - systempaths=unconfined
     stop_grace_period: 2m # time for the agents to finish their turn on `docker compose down`
     volumes:
