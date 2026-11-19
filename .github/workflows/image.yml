@@ -1,0 +1,196 @@
+# The image: checked and built for amd64 and arm64 on every pull request, never pushed from one.
+# Published to ghcr.io/hulbu/factory-container only from a tag (v*), which only a maintainer pushes.
+name: image
+
+on:
+  pull_request:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  # docker/build-push-action would upload a build record as an Actions artifact: no artifacts from this workflow.
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: shellcheck
+        run: shellcheck -x entrypoint/start.sh bin/hulbu test/start.test.sh
+      - name: The release check's tests
+        run: node --test test/verify-release.test.mjs
+      - name: The entrypoint's tests (one case reads releases.hulbu.com)
+        run: bash test/start.test.sh
+      - name: The seccomp profile is what profiles/make-seccomp.sh writes from Docker's pinned default
+        run: |
+          bash profiles/make-seccomp.sh
+          git diff --exit-code -- profiles/seccomp.json
+      - name: The compose files
+        run: |
+          docker compose config -q
+          docker compose -f docker-compose.yml -f docker-compose.practice.yml config -q
+      - name: The Dockerfile (checks only, builds nothing)
+        run: docker buildx build --check .
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            expected: linux-x64
+            node_arch: x64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm # native arm64, no emulation
+            expected: linux-arm64
+            node_arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build (not pushed)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: false
+          load: true
+          tags: |
+            hulbu-factory:ci
+            hulbu-factory:local
+      - name: The programs in the image run
+        env:
+          NODE_ARCH: ${{ matrix.node_arch }}
+        run: |
+          for program in "node --version" "npm --version" "git --version" "gh --version" "bwrap --version"; do
+            # shellcheck disable=SC2086
+            docker run --rm --entrypoint "" hulbu-factory:ci $program
+          done
+          test "$(docker run --rm --entrypoint "" hulbu-factory:ci id -u)" = 10001
+          # Node for this architecture (the Dockerfile's FROM line has a fallback that only `--check` may use).
+          test "$(docker run --rm --entrypoint "" hulbu-factory:ci node -p process.arch)" = "$NODE_ARCH"
+      - name: The release check's tests, inside the image
+        run: docker run --rm --entrypoint "" -v "$PWD:/repository:ro" -w /repository hulbu-factory:ci node --test test/verify-release.test.mjs
+      - name: The agents' sandbox works inside the container, through the compose files
+        # The runner is Ubuntu 24.04: AppArmor is on and unprivileged user namespaces are restricted, so this also
+        # tests the AppArmor profile. The bubblewrap flags are those HulbuFactory uses for every agent.
+        run: |
+          sudo apparmor_parser -r -W profiles/apparmor/hulbu-factory
+          # shellcheck disable=SC2016 # the inner command runs inside the sandbox, not here
+          sandbox=(bwrap --unshare-user --disable-userns --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-try
+            --die-with-parent --new-session --cap-drop ALL
+            --ro-bind /usr /usr --ro-bind-try /bin /bin --ro-bind-try /lib /lib --ro-bind-try /lib64 /lib64
+            --ro-bind /etc /etc --proc /proc --dev /dev --tmpfs /tmp --tmpfs /dev/shm --remount-ro /
+            /bin/sh -c 'test "$(id -u)" = 10001 && test ! -e /home/hulbu && ! unshare -U true 2>/dev/null && echo sandbox-ok')
+          compose=(docker compose -f docker-compose.yml -f docker-compose.apparmor.yml)
+          # With Docker's defaults the same sandbox is refused (so the profiles are what makes it work).
+          if docker run --rm --entrypoint "" --user 10001:10001 hulbu-factory:ci "${sandbox[@]}" >/dev/null 2>&1; then
+            echo "::error::the sandbox worked with Docker's default settings; this check proves nothing"
+            exit 1
+          fi
+          out="$("${compose[@]}" run --rm --no-deps --entrypoint "" factory "${sandbox[@]}")"
+          # The host's binfmt_misc list is readable where HULBU_BINFMT_FOLDER says (systemd mounts it on first use).
+          ls /proc/sys/fs/binfmt_misc >/dev/null
+          # shellcheck disable=SC2016 # expanded inside the container
+          binfmt="$("${compose[@]}" run --rm --no-deps --entrypoint "" factory sh -c 'head -n 1 "$HULBU_BINFMT_FOLDER/status"')"
+          "${compose[@]}" down -v
+          echo "binfmt_misc status seen in the container: $binfmt"
+          test "$binfmt" = enabled
+          echo "$out"
+          test "$out" = sandbox-ok
+      - name: The entrypoint against releases.hulbu.com, as compose runs it (a minute at most)
+        env:
+          EXPECTED: ${{ matrix.expected }}
+        run: |
+          docker run -d --name start-check --init --read-only --tmpfs /tmp:rw,exec,nosuid,nodev \
+            --cap-drop ALL --security-opt no-new-privileges:true -v start-check:/home/hulbu hulbu-factory:ci >/dev/null
+          # Until the first Linux release it must say so and start nothing; afterwards it must install the program.
+          found=no
+          for _ in $(seq 60); do
+            if docker logs start-check 2>&1 | grep -F -e "has no HulbuFactory build for $EXPECTED yet" -e "is installed." >/dev/null; then
+              found=yes
+              break
+            fi
+            sleep 1
+          done
+          docker logs start-check
+          docker rm -f start-check >/dev/null
+          docker volume rm start-check >/dev/null
+          test "$found" = yes
+      # On pull requests only, the image is kept as an artifact for one day, so it can be tried on a machine (the
+      # Raspberry Pi) before anything is merged or tagged: `gunzip -c hulbu-factory-<arch>.tar.gz | docker load` gives
+      # hulbu-factory:local, the name the compose file uses. (The build-record artifact stays off: nobody needs it. This
+      # one is the image itself; artifact storage costs nothing for a public repository.) Publishing stays tag-only.
+      - name: The image as a file (pull requests only)
+        if: github.event_name == 'pull_request'
+        env:
+          ARCH: ${{ matrix.node_arch == 'x64' && 'amd64' || 'arm64' }}
+        run: docker save hulbu-factory:ci hulbu-factory:local | gzip -c >"$RUNNER_TEMP/hulbu-factory-$ARCH.tar.gz"
+      - name: Keep it for one day (pull requests only)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hulbu-factory-image-${{ matrix.node_arch == 'x64' && 'amd64' || 'arm64' }}
+          path: ${{ runner.temp }}/hulbu-factory-${{ matrix.node_arch == 'x64' && 'amd64' || 'arm64' }}.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0 # already gzip
+      - name: Size (in the log and the job summary)
+        run: |
+          {
+            echo "### ${{ matrix.platform }}"
+            echo
+            echo "On disk: $(docker image inspect --format '{{.Size}}' hulbu-factory:ci | numfmt --to=iec)"
+            echo "Compressed (gzip of docker save, about what a pull downloads): $(docker save hulbu-factory:ci | gzip -c | wc -c | numfmt --to=iec)"
+            echo
+            echo '```'
+            docker history --format '{{.Size}}\t{{.CreatedBy}}' hulbu-factory:ci | cut -c1-150
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build both architectures and push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ghcr.io/hulbu/factory-container:${{ github.ref_name }}
