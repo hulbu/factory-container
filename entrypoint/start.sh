@@ -338,6 +338,13 @@ main() {
     say "The installed HulbuFactory program changed while the coding agents were installed. Nothing was started."
     stop_after 300
   fi
+  # The agents' sandbox setting on at the first start: the stricter choice. With secrets in files (HULBU_SECRET_STORE)
+  # every session is sandboxed anyway, but `hulbu sandbox check` reads this setting and would say "off". A setting the
+  # person already has, on or off, is never changed. The program was checked just above.
+  if [[ ! -e "$HOME/.hulbu/sandbox/setting.json" ]]; then
+    "$VERSIONS/current/hulbu" sandbox on ||
+      say "Could not write the sandbox setting; the agents are sandboxed anyway, because secrets are kept in files."
+  fi
   exec "$VERSIONS/current/hulbu" run
 }
 
