@@ -1,5 +1,5 @@
-# Only on a host where AppArmor is on (check: `cat /sys/module/apparmor/parameters/enabled` says Y). Load the profile
-# once as root (`apparmor_parser -r -W profiles/apparmor/hulbu-factory`), then start with both files:
+# Only on a host where AppArmor is on (check: `cat /sys/module/apparmor/parameters/enabled` says Y). Install the profile
+# once as root so it loads at every boot (README "The agents' sandbox"), then start with both files:
 #
 #   docker compose -f docker-compose.yml -f docker-compose.apparmor.yml up -d
 #

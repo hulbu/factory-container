@@ -1,0 +1,15 @@
+# Loads profiles/fence/hulbu-factory-fence again after every Docker start or restart (Docker may rewrite its chains).
+# Its twin, hulbu-factory-fence.service, loads it before Docker starts at boot. Install both: README "A fence on a
+# shared machine".
+[Unit]
+Description=HulbuFactory container egress fence (again after every Docker start)
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/hulbu-factory-fence
+
+[Install]
+WantedBy=docker.service

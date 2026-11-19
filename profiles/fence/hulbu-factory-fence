@@ -6,6 +6,9 @@
 # rule is added once. Run as root, from the systemd unit beside this file.
 set -eu
 subnet="${HULBU_FACTORY_SUBNET:-172.30.86.0/24}"
+# Before Docker starts (the first unit), DOCKER-USER does not exist yet: make it. Docker keeps an existing DOCKER-USER
+# and jumps to it from FORWARD, so the fence is in place before any container starts.
+iptables -N DOCKER-USER 2>/dev/null || true
 add() {
   chain="$1"
   shift

@@ -108,13 +108,14 @@ Raspberry Pi OS), Docker's own AppArmor profile refuses every mount. Load this r
 start with the extra file:
 
 ```sh
-sudo apparmor_parser -r -W profiles/apparmor/hulbu-factory
+sudo install -m 644 profiles/apparmor/hulbu-factory /etc/apparmor.d/hulbu-factory   # loads again at every boot
+sudo apparmor_parser -r -W /etc/apparmor.d/hulbu-factory
 docker compose -f docker-compose.yml -f docker-compose.apparmor.yml up -d
 ```
 
 The profile is Docker's own with three changes, each marked in the file: mounts and `pivot_root`, `userns`, and
 writes to `/proc/sys/user/` (for bubblewrap's `--disable-userns`). It needs AppArmor 4 (Debian 13, Ubuntu 24.04). To
-remove it: `sudo apparmor_parser -R profiles/apparmor/hulbu-factory`.
+remove it: `sudo apparmor_parser -R /etc/apparmor.d/hulbu-factory && sudo rm /etc/apparmor.d/hulbu-factory`.
 
 **What giving the container user namespaces costs.** Docker refuses them by default for a reason. Inside a user
 namespace a program is "root" of its own small world, and with that it can reach kernel code that ordinary programs
@@ -280,8 +281,14 @@ work: 4 CPUs at a low weight, 8 GB with no swap, 4096 processes, its own network
 
 **On the host first** (once, as an administrator):
 
-1. `sudo apparmor_parser -r -W profiles/apparmor/hulbu-factory` from a checkout of this repository. **Required** on
-   Ubuntu 24.04 and other AppArmor hosts: without it, user namespaces are refused and no agent starts.
+1. The AppArmor profile, installed so it loads again at every boot. **Required** on Ubuntu 24.04 and other AppArmor
+   hosts: without it, user namespaces are refused and no agent starts (and after a reboot the container would not
+   start at all):
+
+   ```sh
+   sudo install -m 644 profiles/apparmor/hulbu-factory /etc/apparmor.d/hulbu-factory
+   sudo apparmor_parser -r -W /etc/apparmor.d/hulbu-factory
+   ```
 2. The image, loaded by hand (Coolify never builds or pulls it): `gunzip -c hulbu-factory-amd64.tar.gz | docker load`.
 3. `docker volume create hulbu-factory-practice` (empty unless you practise with a build of your own).
 4. The network fence: see [A fence on a shared machine](#a-fence-on-a-shared-machine).
@@ -306,13 +313,15 @@ On a machine that runs other work (Coolify's apps, databases, CI), the container
 `docker-compose.coolify.yml` it has its own subnet, `172.30.86.0/24`, and `profiles/fence/` holds rules for that
 subnet: no other Docker network or private network (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), no tailnet
 (100.64.0.0/10), no cloud metadata (169.254.0.0/16), no mail ports, and no new connection to the host itself. A systemd
-unit loads them at boot and again after every Docker start. They match the subnet, so a redeploy that renames the
-network keeps them.
+unit loads them **before Docker starts** at boot (so the container is never up unfenced), and a second one again after
+every Docker start. They match the subnet, so a redeploy that renames the network keeps them.
 
 ```sh
 sudo install -m 755 profiles/fence/hulbu-factory-fence /usr/local/sbin/
-sudo install -m 644 profiles/fence/hulbu-factory-fence.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now hulbu-factory-fence.service
+sudo install -m 644 profiles/fence/hulbu-factory-fence.service profiles/fence/hulbu-factory-fence-again.service \
+  /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now hulbu-factory-fence.service hulbu-factory-fence-again.service
 sudo iptables -S DOCKER-USER | grep -c hulbu-factory    # 6
 sudo iptables -S INPUT | grep -c hulbu-factory          # 1
 ```
@@ -335,7 +344,8 @@ const tcp = (host, port) => new Promise(done => { const s = net.connect({ host, 
 ```
 
 Add your own host's addresses and ports to the list (its LAN address, the gateway of another app's network).
-Undo: `sudo systemctl disable --now hulbu-factory-fence.service`, remove the two installed files, and delete each
+Undo: `sudo systemctl disable --now hulbu-factory-fence.service hulbu-factory-fence-again.service`, remove the three
+installed files, and delete each
 `hulbu-factory` rule by its comment (`sudo iptables -S DOCKER-USER`, `sudo iptables -S INPUT`, then `-D`).
 
 ## Removing it

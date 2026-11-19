@@ -2,7 +2,8 @@
 # docker-compose.apparmor.yml and the practice file give, in one place, plus firm limits for a machine that runs other
 # work. Read "Coolify" in the README first. Before the first deploy, on the host:
 #   - load the AppArmor profile (REQUIRED on Ubuntu 24.04 and other AppArmor hosts; without it user namespaces are
-#     refused and no agent starts): sudo apparmor_parser -r -W profiles/apparmor/hulbu-factory
+#     refused and no agent starts), installed so it loads at every boot:
+#       sudo install -m 644 profiles/apparmor/hulbu-factory /etc/apparmor.d/ && sudo apparmor_parser -r -W /etc/apparmor.d/hulbu-factory
 #   - load the image (it is never built or pulled here): gunzip -c hulbu-factory-amd64.tar.gz | docker load
 #   - create the practice volume, even empty: docker volume create hulbu-factory-practice
 #   - the network fence (README "A fence on a shared machine"), because this container's network is its own.
