@@ -133,6 +133,24 @@ jobs:
           docker rm -f start-check >/dev/null
           docker volume rm start-check >/dev/null
           test "$found" = yes
+      # On pull requests only, the image is kept as an artifact for one day, so it can be tried on a machine (the
+      # Raspberry Pi) before anything is merged or tagged: `gunzip -c hulbu-factory-<arch>.tar.gz | docker load` gives
+      # hulbu-factory:local, the name the compose file uses. (The build-record artifact stays off: nobody needs it. This
+      # one is the image itself; artifact storage costs nothing for a public repository.) Publishing stays tag-only.
+      - name: The image as a file (pull requests only)
+        if: github.event_name == 'pull_request'
+        env:
+          ARCH: ${{ matrix.node_arch == 'x64' && 'amd64' || 'arm64' }}
+        run: docker save hulbu-factory:ci hulbu-factory:local | gzip -c >"$RUNNER_TEMP/hulbu-factory-$ARCH.tar.gz"
+      - name: Keep it for one day (pull requests only)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hulbu-factory-image-${{ matrix.node_arch == 'x64' && 'amd64' || 'arm64' }}
+          path: ${{ runner.temp }}/hulbu-factory-${{ matrix.node_arch == 'x64' && 'amd64' || 'arm64' }}.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0 # already gzip
       - name: Size (in the log and the job summary)
         run: |
           {
