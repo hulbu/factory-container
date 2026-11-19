@@ -1,0 +1,13 @@
+# Practice only: run a HulbuFactory build of your own instead of the signed release from releases.hulbu.com.
+# Not signed: the container checks the two files only against the SHA-256 values you give here.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.practice.yml up -d
+#
+# See "Practice with a local build" in the README.
+services:
+  factory:
+    environment:
+      HULBU_PRACTICE_SHA256: "put the SHA-256 of hulbu here"
+      HULBU_PRACTICE_DRIVER_SHA256: "put the SHA-256 of station-driver-claude here"
+    volumes:
+      - ./practice:/practice:ro # a folder holding exactly hulbu and station-driver-claude

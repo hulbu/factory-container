@@ -1,0 +1,33 @@
+# HulbuFactory as a container. `docker compose up -d`, then sign in (see the README).
+# Meant to work on Coolify as a "Docker Compose" resource too (not tried yet).
+services:
+  factory:
+    # No image is published yet (where is still open): build it once on a machine that is not the Pi (see the README).
+    image: hulbu-factory:local
+    build: .
+    init: true # a small init as process 1: it passes signals on and reaps the agents' child processes
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true # only the volume and /tmp can be written
+    tmpfs:
+      # The Claude driver unpacks the claude program here and runs it, so this /tmp allows running programs.
+      - /tmp:rw,exec,nosuid,nodev,size=2g,mode=1777
+    cap_drop: [ALL] # no capability at all: the agents' sandbox needs none
+    security_opt:
+      - no-new-privileges:true
+      # Docker's default seccomp profile plus only what an unprivileged user namespace needs (profiles/make-seccomp.sh
+      # says exactly what), so HulbuFactory can put each agent in its own sandbox (bubblewrap) inside the container.
+      - seccomp=./profiles/seccomp.json
+      # The sandbox mounts a fresh /proc for each agent; the kernel allows that only when the container's /proc is not
+      # partly hidden. This shows the container read-only kernel files Docker hides by default (/proc/kcore,
+      # /proc/keys, /proc/timer_list, /sys/firmware); with no capability it cannot write to them.
+      - systempaths=unconfined
+    stop_grace_period: 2m # time for the agents to finish their turn on `docker compose down`
+    volumes:
+      - factory:/home/hulbu # everything: the program, the logins, the agents, the work
+      # The host's binfmt_misc handler list, read only (a kernel list, no data), so HulbuFactory's sandbox check can
+      # see which programs Linux would run outside the sandbox. A container cannot see that list any other way.
+      - /proc/sys/fs/binfmt_misc:/run/host/binfmt_misc:ro
+
+volumes:
+  factory: {}
