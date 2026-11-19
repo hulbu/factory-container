@@ -125,6 +125,21 @@ with everything on the machine. That is why HulbuFactory needs a machine that ru
 (kernel updates and reboots), and never a shared server. An agent that escapes its sandbox reaches everything in the container
 (the sign-ins, every job's folder); after anything suspicious, remove the device and the volume and install again.
 
+## The device's name
+
+hulbu.com shows the device under the name it had at its **first** `hulbu login`: the container's hostname. The compose
+file sets it to `hulbufactory`; to choose your own, set it before you sign in:
+
+```sh
+echo 'HULBU_FACTORY_NAME=pi' >.env       # next to docker-compose.yml; Compose reads it by itself
+docker compose up -d
+```
+
+A name only letters, digits and `-` (it is a hostname). **Renaming a device that is already signed in** is not
+possible yet: the name is sent once, at sign-in, and there is no rename on hulbu.com or in `hulbu`. To change it now:
+Remove the device on hulbu.com, set the new name as above, `docker compose up -d`, then `docker compose exec -it factory
+hulbu logout` and `hulbu login` again. The Claude and GitHub sign-ins in the volume stay.
+
 ## Sign in (once)
 
 All three sign-ins happen in the container, by hand. Nothing is typed into a file or a variable.
@@ -207,6 +222,15 @@ services:
 ```
 
 Then `docker compose up -d`. Remove the file to go back to the agents' normal updates.
+
+## After a reboot
+
+The container comes back by itself when the machine restarts: `restart: unless-stopped` in the compose file, and Docker
+started at boot (`sudo systemctl enable docker`, in [Prepare a Raspberry Pi](#prepare-a-raspberry-pi-once)). It stays
+down only if you stopped it yourself (`docker compose stop`); `docker compose up -d` starts it again.
+
+`hulbu status` inside the container says **`Autostart: off`**. That is expected: it describes HulbuFactory's own
+service manager (systemd or launchd), which the container does not use. Docker's restart policy does that job here.
 
 ## Updating
 
